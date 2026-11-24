@@ -1,8 +1,11 @@
 package com.coolanas.app
 
+import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.Bundle
 import android.util.Log
-import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +21,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -28,42 +32,73 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.lifecycleScope
 import com.coolanas.app.ui.theme.CoolanasTheme
 import io.github.jan.supabase.annotations.SupabaseExperimental
-import io.github.jan.supabase.auth.event.AuthEvent
-import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.event.AuthEvent
 import io.github.jan.supabase.auth.handleDeeplinks
 import io.github.jan.supabase.auth.providers.Google
+import io.github.jan.supabase.auth.status.SessionStatus
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private var errorReporter: ((String) -> Unit)? = null
     private var pendingAuthError: String? = null
+    private lateinit var studySyncManager: StudySyncManager
+    private var activeUserId: String? = null
+    private var networkSyncSignal: (() -> Unit)? = null
+    private var networkCallbackRegistered = false
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+            val validated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            if (validated) signalNetworkSync()
+        }
+    }
 
     @OptIn(SupabaseExperimental::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        studySyncManager = StudySyncManager(applicationContext)
         handleAuthDeeplink(intent)
         setContent {
             CoolanasTheme {
-                var authenticated by remember { mutableStateOf(false) }
+                var authenticatedUserId by remember { mutableStateOf<String?>(null) }
                 var isStartingLogin by remember { mutableStateOf(false) }
                 var errorLog by remember { mutableStateOf<String?>(null) }
+                var syncTrigger by remember { mutableIntStateOf(0) }
                 val scope = rememberCoroutineScope()
 
                 LaunchedEffect(Unit) {
                     errorReporter = { message -> errorLog = message }
+                    networkSyncSignal = { syncTrigger++ }
                     pendingAuthError?.let {
                         errorLog = it
                         pendingAuthError = null
                     }
                     try {
                         SupabaseClientProvider.client.auth.sessionStatus.collect { status ->
-                            authenticated = status is SessionStatus.Authenticated
+                            when (status) {
+                                is SessionStatus.Authenticated -> {
+                                    val userId = status.session.user?.id
+                                    authenticatedUserId = userId
+                                    activeUserId = userId
+                                    if (userId != null) StudySyncWorker.enqueue(applicationContext, userId)
+                                }
+                                is SessionStatus.NotAuthenticated -> {
+                                    authenticatedUserId = null
+                                    activeUserId = null
+                                }
+                                else -> Unit
+                            }
                         }
                     } catch (error: Exception) {
-                        reportAuthError("Could not read login state: ${error.message ?: error::class.java.simpleName}", error)
+                        reportAuthError(
+                            "Could not read login state: ${error.message ?: error::class.java.simpleName}",
+                            error
+                        )
                     }
                 }
 
@@ -71,22 +106,39 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize().testTag("app-root"),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize().padding(28.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
-                    ) {
-                        Text(
-                            text = "Coolanas",
-                            fontSize = 34.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
+                    val userId = authenticatedUserId
+                    if (userId != null) {
+                        StudyDashboardScreen(
+                            userId = userId,
+                            repository = studySyncManager,
+                            syncVersion = syncTrigger,
+                            onSignOut = {
+                                scope.launch {
+                                    try {
+                                        SupabaseClientProvider.client.auth.signOut()
+                                    } catch (error: Exception) {
+                                        reportAuthError(
+                                            "Could not sign out: ${error.message ?: error::class.java.simpleName}",
+                                            error
+                                        )
+                                    }
+                                }
+                            },
+                            onSyncStatus = {}
                         )
-                        Spacer(Modifier.height(36.dp))
-
-                        if (authenticated) {
-                            Text("Login successful", style = MaterialTheme.typography.headlineSmall)
-                        } else {
+                    } else {
+                        Column(
+                            modifier = Modifier.fillMaxSize().padding(28.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            Text(
+                                text = "Coolanas",
+                                fontSize = 34.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.height(36.dp))
                             Button(
                                 onClick = {
                                     if (!isStartingLogin) {
@@ -111,19 +163,19 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 Text(if (isStartingLogin) "Opening Google…" else "Continue with Google")
                             }
-                        }
 
-                        if (errorLog != null) {
-                            Spacer(Modifier.height(24.dp))
-                            Surface(
-                                color = MaterialTheme.colorScheme.errorContainer,
-                                contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                                shape = RoundedCornerShape(10.dp),
-                            ) {
-                                Column(Modifier.padding(14.dp)) {
-                                    Text("Error log", fontWeight = FontWeight.Bold)
-                                    Spacer(Modifier.height(6.dp))
-                                    Text(errorLog ?: "")
+                            if (errorLog != null) {
+                                Spacer(Modifier.height(24.dp))
+                                Surface(
+                                    color = MaterialTheme.colorScheme.errorContainer,
+                                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                                    shape = RoundedCornerShape(10.dp),
+                                ) {
+                                    Column(Modifier.padding(14.dp)) {
+                                        Text("Error log", fontWeight = FontWeight.Bold)
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(errorLog ?: "")
+                                    }
                                 }
                             }
                         }
@@ -131,6 +183,48 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val connectivity = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+        try {
+            if (!networkCallbackRegistered) {
+                connectivity.registerDefaultNetworkCallback(networkCallback)
+                networkCallbackRegistered = true
+            }
+            val active = connectivity.activeNetwork
+            val capabilities = active?.let(connectivity::getNetworkCapabilities)
+            if (capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                signalNetworkSync()
+            }
+        } catch (error: SecurityException) {
+            Log.w(LOG_TAG, "Network state is unavailable; WorkManager will retry queued sync.", error)
+        }
+    }
+
+    override fun onStop() {
+        activeUserId?.let { userId ->
+            studySyncManager.checkpointTimer(userId)
+            StudySyncWorker.enqueue(applicationContext, userId)
+        }
+        if (networkCallbackRegistered) {
+            val connectivity = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+            try {
+                connectivity.unregisterNetworkCallback(networkCallback)
+            } catch (_: Exception) {
+                // The callback may already have been removed by the system.
+            }
+            networkCallbackRegistered = false
+        }
+        super.onStop()
+    }
+
+    private fun signalNetworkSync() {
+        val userId = activeUserId ?: return
+        StudySyncWorker.enqueue(applicationContext, userId)
+        runOnUiThread { networkSyncSignal?.invoke() }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -143,10 +237,18 @@ class MainActivity : ComponentActivity() {
         try {
             SupabaseClientProvider.client.handleDeeplinks(
                 callbackIntent,
-                onError = { error -> reportAuthError("Authentication callback failed: ${error.message ?: error::class.java.simpleName}", error) },
+                onError = { error ->
+                    reportAuthError(
+                        "Authentication callback failed: ${error.message ?: error::class.java.simpleName}",
+                        error
+                    )
+                },
             )
         } catch (error: Exception) {
-            reportAuthError("Authentication callback failed: ${error.message ?: error::class.java.simpleName}", error)
+            reportAuthError(
+                "Authentication callback failed: ${error.message ?: error::class.java.simpleName}",
+                error
+            )
         }
     }
 
