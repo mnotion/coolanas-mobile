@@ -68,6 +68,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -152,6 +154,12 @@ fun StudyDashboardScreen(
     } else {
         Color(0xFFE5E5E5)
     }
+    val activeSubjectName = timer.runningSubject ?: selectedSubject
+    val activeSubjectColour = Color(
+        StudySyncManager.subjectPalette[
+            subjects.firstOrNull { it.name == activeSubjectName }?.color ?: 0
+        ]
+    )
 
     LaunchedEffect(userId) {
         entryVisible = false
@@ -260,44 +268,57 @@ fun StudyDashboardScreen(
             .background(animatedBackground),
         contentAlignment = Alignment.Center
     ) {
-        if (timerRunning) {
+        if (timerRunning || !selectedSubject.isNullOrBlank()) {
             Canvas(Modifier.fillMaxSize()) {
                 val radius = max(size.width, size.height) * 0.9f
-                drawRect(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFF8F1424).copy(alpha = redPulse * 0.48f),
-                            Color(0xFF5C0812).copy(alpha = redPulse * 0.23f),
-                            Color.Transparent
-                        ),
-                        center = Offset(size.width * 0.5f, size.height * 0.48f),
-                        radius = radius
+                if (timerRunning) {
+                    drawRect(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFF8F1424).copy(alpha = redPulse * 0.48f),
+                                Color(0xFF5C0812).copy(alpha = redPulse * 0.23f),
+                                Color.Transparent
+                            ),
+                            center = Offset(size.width * 0.5f, size.height * 0.48f),
+                            radius = radius
+                        )
                     )
-                )
-                drawRect(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFF239451).copy(alpha = 0.35f),
-                            Color(0xFF12693A).copy(alpha = 0.17f),
-                            Color.Transparent
-                        ),
-                        center = Offset(
-                            size.width * (0.24f + greenDrift * 0.52f),
-                            size.height * (0.34f + (1f - greenDrift) * 0.34f)
-                        ),
-                        radius = radius * 0.76f
+                    drawRect(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFF239451).copy(alpha = 0.35f),
+                                Color(0xFF12693A).copy(alpha = 0.17f),
+                                Color.Transparent
+                            ),
+                            center = Offset(
+                                size.width * (0.24f + greenDrift * 0.52f),
+                                size.height * (0.34f + (1f - greenDrift) * 0.34f)
+                            ),
+                            radius = radius * 0.76f
+                        )
                     )
-                )
+                    drawRect(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFF26965A).copy(alpha = 0.2f),
+                                Color.Transparent
+                            ),
+                            center = Offset(
+                                size.width * (0.78f - greenDrift * 0.3f),
+                                size.height * (0.72f - greenDrift * 0.24f)
+                            ),
+                            radius = radius * 0.58f
+                        )
+                    )
+                }
                 drawRect(
                     Brush.radialGradient(
                         colors = listOf(
-                            Color(0xFF26965A).copy(alpha = 0.2f),
+                            activeSubjectColour.copy(alpha = if (timerRunning) 0.26f else 0.22f),
+                            activeSubjectColour.copy(alpha = 0.09f),
                             Color.Transparent
                         ),
-                        center = Offset(
-                            size.width * (0.78f - greenDrift * 0.3f),
-                            size.height * (0.72f - greenDrift * 0.24f)
-                        ),
+                        center = Offset(size.width * 0.5f, size.height * 0.78f),
                         radius = radius * 0.58f
                     )
                 )
@@ -492,7 +513,7 @@ fun StudyDashboardScreen(
             }
         }
 
-        val shownSubject = timer.runningSubject ?: selectedSubject
+        val shownSubject = activeSubjectName
         AnimatedVisibility(
             visible = entryVisible && !shownSubject.isNullOrBlank() && (timerRunning || timerPaused),
             modifier = Modifier
@@ -705,7 +726,8 @@ private fun TimerControlButton(
     Surface(
         modifier = Modifier
             .size(size)
-            .combinedClickable(enabled = enabled, onClick = onClick),
+            .combinedClickable(enabled = enabled, onClick = onClick)
+            .semantics { this.contentDescription = contentDescription },
         shape = CircleShape,
         color = background.copy(alpha = if (enabled) 1f else 0.4f),
         border = androidx.compose.foundation.BorderStroke(
