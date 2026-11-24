@@ -29,11 +29,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.coolanas.app.ui.theme.CoolanasTheme
-import io.github.jan.supabase.gotrue.AuthEvent
-import io.github.jan.supabase.gotrue.SessionStatus
-import io.github.jan.supabase.gotrue.gotrue
-import io.github.jan.supabase.gotrue.handleDeeplinks
-import io.github.jan.supabase.gotrue.providers.Google
+import io.github.jan.supabase.auth.status.SessionStatus
+import io.github.jan.supabase.auth.handleDeeplinks
+import io.github.jan.supabase.auth.providers.Google
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -57,23 +55,11 @@ class MainActivity : ComponentActivity() {
                         pendingAuthError = null
                     }
                     try {
-                        SupabaseClientProvider.client.gotrue.sessionStatus.collect { status ->
+                        SupabaseClientProvider.client.auth.sessionStatus.collect { status ->
                             authenticated = status is SessionStatus.Authenticated
                         }
                     } catch (error: Exception) {
                         reportAuthError("Could not read login state: ${error.message ?: error::class.java.simpleName}", error)
-                    }
-                }
-
-                LaunchedEffect(Unit) {
-                    try {
-                        SupabaseClientProvider.client.gotrue.events.collect { event ->
-                            if (event is AuthEvent.OtpError) {
-                                reportAuthError("Google sign-in callback failed: ${event.error}")
-                            }
-                        }
-                    } catch (error: Exception) {
-                        reportAuthError("Could not monitor authentication errors: ${error.message ?: error::class.java.simpleName}", error)
                     }
                 }
 
@@ -104,7 +90,7 @@ class MainActivity : ComponentActivity() {
                                         errorLog = null
                                         scope.launch {
                                             try {
-                                                SupabaseClientProvider.client.gotrue.loginWith(Google)
+                                                SupabaseClientProvider.client.auth.signInWith(Google)
                                             } catch (error: Exception) {
                                                 reportAuthError(
                                                     "Could not start Google sign-in: ${error.message ?: error::class.java.simpleName}",
@@ -151,7 +137,10 @@ class MainActivity : ComponentActivity() {
 
     private fun handleAuthDeeplink(callbackIntent: Intent) {
         try {
-            SupabaseClientProvider.client.handleDeeplinks(callbackIntent)
+            SupabaseClientProvider.client.handleDeeplinks(
+                callbackIntent,
+                onError = { error -> reportAuthError("Authentication callback failed: ${error.message ?: error::class.java.simpleName}", error) },
+            )
         } catch (error: Exception) {
             reportAuthError("Authentication callback failed: ${error.message ?: error::class.java.simpleName}", error)
         }
