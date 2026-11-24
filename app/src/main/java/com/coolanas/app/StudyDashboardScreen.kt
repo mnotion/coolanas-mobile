@@ -58,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -154,6 +155,8 @@ fun StudyDashboardScreen(
 
     LaunchedEffect(userId) {
         entryVisible = false
+        delay(65L)
+        entryVisible = true
         if (timer.startedAtMs != null) {
             withContext(Dispatchers.IO) { repository.checkpointTimer(userId) }
             timer = repository.timerState(userId)
@@ -171,8 +174,6 @@ fun StudyDashboardScreen(
             repository.loadProfileAvatar(userId, accountProfile.googleAvatarUrl)
         }
         withContext(Dispatchers.IO) { repository.syncPending(userId) }
-        delay(65L)
-        entryVisible = true
     }
 
     LaunchedEffect(userId, syncVersion) {
