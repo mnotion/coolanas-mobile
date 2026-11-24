@@ -29,6 +29,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.coolanas.app.ui.theme.CoolanasTheme
+import io.github.jan.supabase.annotations.SupabaseExperimental
+import io.github.jan.supabase.auth.event.AuthEvent
 import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.auth.handleDeeplinks
 import io.github.jan.supabase.auth.providers.Google
@@ -38,6 +40,7 @@ class MainActivity : ComponentActivity() {
     private var errorReporter: ((String) -> Unit)? = null
     private var pendingAuthError: String? = null
 
+    @OptIn(SupabaseExperimental::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleAuthDeeplink(intent)
