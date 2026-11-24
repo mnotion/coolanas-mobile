@@ -210,7 +210,8 @@ class StudySyncManager(context: Context) {
                 StudySubjectsLoad(subjects, true)
             }
         } catch (_: Exception) {
-            StudySubjectsLoad(cached ?: defaultSubjects, cached != null)
+            val latestCache = cachedSubjects(userId)
+            StudySubjectsLoad(latestCache ?: defaultSubjects, latestCache != null)
         }
     }
 
@@ -278,8 +279,11 @@ class StudySyncManager(context: Context) {
                 })
             })
             val sentIds = batch.mapTo(mutableSetOf()) { it.eventId }
-            val latest = readAnalyticsQueue(userId).filterNot { it.eventId in sentIds }
-            preferences.edit().putString(queueKey(userId), encodeAnalyticsQueue(latest)).commit()
+            val saved = synchronized(timerCheckpointLock) {
+                val latest = readAnalyticsQueue(userId).filterNot { it.eventId in sentIds }
+                preferences.edit().putString(queueKey(userId), encodeAnalyticsQueue(latest)).commit()
+            }
+            if (!saved) throw IllegalStateException("Could not persist the remaining offline analytics queue.")
         }
     }
 
