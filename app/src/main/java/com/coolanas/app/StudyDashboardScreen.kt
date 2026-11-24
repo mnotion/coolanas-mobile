@@ -2,6 +2,7 @@ package com.coolanas.app
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,7 +25,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -409,12 +409,12 @@ private fun TimerCircleButton(
     onClick: () -> Unit
 ) {
     Surface(
-        modifier = Modifier.size(size),
+        modifier = Modifier
+            .size(size)
+            .clickable(enabled = enabled, onClick = onClick),
         shape = CircleShape,
         color = background.copy(alpha = if (enabled) 1f else 0.45f),
-        border = BorderStroke(1.dp, Color(0xFFDADADA)),
-        onClick = onClick,
-        enabled = enabled
+        border = BorderStroke(1.dp, Color(0xFFDADADA))
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(label, color = foreground, fontSize = 20.sp, fontWeight = FontWeight.Medium)
@@ -448,14 +448,13 @@ private fun SubjectEditorDialog(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     StudySyncManager.subjectPalette.forEachIndexed { index, colour ->
                         Surface(
-                            modifier = Modifier.size(28.dp),
+                            modifier = Modifier.size(28.dp).clickable { colorIndex = index },
                             shape = CircleShape,
                             color = Color(colour),
                             border = BorderStroke(
                                 if (colorIndex == index) 2.dp else 1.dp,
                                 if (colorIndex == index) Color(0xFF333333) else Color(0xFFBBBBBB)
-                            ),
-                            onClick = { colorIndex = index }
+                            )
                         ) {}
                     }
                 }
