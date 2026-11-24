@@ -64,9 +64,11 @@ class StudySyncManager(context: Context) {
     private val appContext = context.applicationContext
     private val preferences: SharedPreferences =
         appContext.getSharedPreferences("coolanas_study_local_v1", Context.MODE_PRIVATE)
-    private val syncMutex = Mutex()
+    private val syncMutex = globalSyncMutex
 
     companion object {
+        private val globalSyncMutex = Mutex()
+        private val timerCheckpointLock = Any()
         const val WORK_NAME_PREFIX = "coolanas-study-sync-"
         val defaultSubjects = listOf(
             StudySubject("Maths", 0),
@@ -114,7 +116,7 @@ class StudySyncManager(context: Context) {
         preferences.edit().putString(selectedSubjectKey(userId), subject).apply()
     }
 
-    fun startTimer(userId: String, subject: String): StudyTimerState {
+    fun startTimer(userId: String, subject: String): StudyTimerState = synchronized(timerCheckpointLock) {
         val now = System.currentTimeMillis()
         preferences.edit()
             .putString(selectedSubjectKey(userId), subject)
@@ -122,10 +124,10 @@ class StudySyncManager(context: Context) {
             .putLong(checkpointKey(userId), now)
             .putString(runningSubjectKey(userId), subject)
             .apply()
-        return timerState(userId)
+        timerState(userId)
     }
 
-    fun pauseTimer(userId: String): StudyTimerState {
+    fun pauseTimer(userId: String): StudyTimerState = synchronized(timerCheckpointLock) {
         val before = timerState(userId)
         if (before.startedAtMs != null) {
             val now = System.currentTimeMillis()
@@ -137,10 +139,10 @@ class StudySyncManager(context: Context) {
                 .remove(runningSubjectKey(userId))
                 .apply()
         }
-        return timerState(userId)
+        timerState(userId)
     }
 
-    fun resetTimer(userId: String): StudyTimerState {
+    fun resetTimer(userId: String): StudyTimerState = synchronized(timerCheckpointLock) {
         if (timerState(userId).startedAtMs != null) {
             checkpointTimer(userId, System.currentTimeMillis())
         }
@@ -150,7 +152,7 @@ class StudySyncManager(context: Context) {
             .remove(checkpointKey(userId))
             .remove(runningSubjectKey(userId))
             .apply()
-        return timerState(userId)
+        timerState(userId)
     }
 
     /**
@@ -158,23 +160,23 @@ class StudySyncManager(context: Context) {
      * checkpoint timestamp are written in one SharedPreferences transaction, so a crash
      * cannot leave the timer checkpoint ahead of an unsaved analytics record.
      */
-    fun checkpointTimer(userId: String, endAt: Long = System.currentTimeMillis()): Boolean {
-        val start = preferences.getLong(startedKey(userId), 0L)
-        if (start <= 0L) return false
-        val previousCheckpoint = preferences.getLong(checkpointKey(userId), start).coerceAtLeast(start)
-        if (endAt <= previousCheckpoint) return false
+    fun checkpointTimer(userId: String, endAt: Long = System.currentTimeMillis()): Boolean =
+        synchronized(timerCheckpointLock) {
+            val start = preferences.getLong(startedKey(userId), 0L)
+            if (start <= 0L) return@synchronized false
+            val previousCheckpoint = preferences.getLong(checkpointKey(userId), start).coerceAtLeast(start)
+            if (endAt <= previousCheckpoint) return@synchronized false
 
-        val subject = preferences.getString(runningSubjectKey(userId), null) ?: "Unassigned"
-        val newRecords = splitInterval(previousCheckpoint, endAt, subject)
-        val queue = readAnalyticsQueue(userId).toMutableList()
-        queue.addAll(newRecords)
+            val subject = preferences.getString(runningSubjectKey(userId), null) ?: "Unassigned"
+            val newRecords = splitInterval(previousCheckpoint, endAt, subject)
+            val queue = readAnalyticsQueue(userId).toMutableList()
+            queue.addAll(newRecords)
 
-        val editor = preferences.edit()
-            .putString(queueKey(userId), encodeAnalyticsQueue(queue))
-            .putLong(checkpointKey(userId), endAt)
-        val saved = editor.commit()
-        return saved
-    }
+            preferences.edit()
+                .putString(queueKey(userId), encodeAnalyticsQueue(queue))
+                .putLong(checkpointKey(userId), endAt)
+                .commit()
+        }
 
     fun saveSubjects(userId: String, subjects: List<StudySubject>) {
         val clean = normaliseSubjects(subjects)
@@ -196,9 +198,12 @@ class StudySyncManager(context: Context) {
                 } else {
                     parseSubjects(rawSubjects)
                 }
-                writeSubjects(userId, subjects, initialized = true, dirty = false)
                 if (rawSubjects == null || rawSubjects == JsonNull) {
+                    writeSubjects(userId, subjects, initialized = true, dirty = true)
                     saveSubjectsToCloud(subjects)
+                    preferences.edit().putBoolean(subjectsDirtyKey(userId), false).apply()
+                } else {
+                    writeSubjects(userId, subjects, initialized = true, dirty = false)
                 }
                 StudySubjectsLoad(subjects, true)
             }
@@ -419,7 +424,9 @@ class StudySyncWorker(
                 ?: return Result.failure()
             val currentUserId = authenticated.session.user?.id ?: return Result.failure()
             if (currentUserId != expectedUserId) return Result.failure()
-            val synced = StudySyncManager(applicationContext).syncPending(currentUserId, scheduleRetry = false)
+            val repository = StudySyncManager(applicationContext)
+            repository.checkpointTimer(currentUserId)
+            val synced = repository.syncPending(currentUserId, scheduleRetry = false)
             if (synced) Result.success() else Result.retry()
         } catch (_: Exception) {
             Result.retry()
