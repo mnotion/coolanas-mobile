@@ -55,6 +55,7 @@ import kotlinx.coroutines.withContext
 fun StudyDashboardScreen(
     userId: String,
     repository: StudySyncManager,
+    syncVersion: Int,
     onSignOut: () -> Unit,
     onSyncStatus: (Boolean) -> Unit
 ) {
@@ -90,6 +91,14 @@ fun StudyDashboardScreen(
         val synced = withContext(Dispatchers.IO) { repository.syncPending(userId) }
         syncLabel = if (synced) "Synced with Coolanas" else "Saved on this phone · waiting to sync"
         onSyncStatus(synced)
+    }
+
+    LaunchedEffect(userId, syncVersion) {
+        if (syncVersion > 0) {
+            val synced = withContext(Dispatchers.IO) { repository.syncPending(userId) }
+            syncLabel = if (synced) "Synced with Coolanas" else "Saved on this phone · waiting to sync"
+            onSyncStatus(synced)
+        }
     }
 
     LaunchedEffect(userId, timer.startedAtMs) {
@@ -276,12 +285,6 @@ fun StudyDashboardScreen(
                                         selectedLabelColor = Color(0xFF333333),
                                         labelColor = Color(0xFF444444)
                                     ),
-                                    border = FilterChipDefaults.filterChipBorder(
-                                        enabled = subjectsEditable,
-                                        selected = selectedSubject == subject.name,
-                                        borderColor = Color(0xFFD7D7D7),
-                                        selectedBorderColor = Color(0xFF777777)
-                                    )
                                 )
                                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                                     DropdownMenuItem(
