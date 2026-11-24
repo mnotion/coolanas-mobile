@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -15,6 +16,8 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "SUPABASE_URL", "\"https://nacwftrsdpglzrhasmit.supabase.co\"")
+        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_4OLO5cw2lr_l90MECEAG0A_MJY1NQQF\"")
     }
 
     compileOptions {
@@ -38,6 +41,8 @@ dependencies {
     androidTestImplementation(composeBom)
 
     implementation(libs.androidx.activity.compose)
+    implementation(libs.supabase.auth)
+    implementation(libs.ktor.client.android)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
