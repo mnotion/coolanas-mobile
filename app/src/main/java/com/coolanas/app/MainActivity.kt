@@ -6,6 +6,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Bundle
 import android.util.Log
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -125,6 +127,14 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background,
                 ) {
                     val userId = authenticatedUserId
+                    SideEffect {
+                        val fullscreenFlag = WindowManager.LayoutParams.FLAG_FULLSCREEN
+                        if (userId != null) {
+                            window.setFlags(fullscreenFlag, fullscreenFlag)
+                        } else {
+                            window.clearFlags(fullscreenFlag)
+                        }
+                    }
                     if (userId != null) {
                         StudyDashboardScreen(
                             userId = userId,
