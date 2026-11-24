@@ -2,6 +2,8 @@ package com.coolanas.app
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import androidx.work.ExistingWorkPolicy
@@ -19,6 +21,8 @@ import io.ktor.http.HttpHeaders
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -27,6 +31,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
@@ -37,6 +42,8 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import java.util.UUID
+import java.net.HttpURLConnection
+import java.net.URL
 import kotlin.math.max
 import kotlin.math.min
 
@@ -93,6 +100,8 @@ class StudySyncManager(context: Context) {
     private fun initializedKey(userId: String) = key(userId, "subjects_initialized")
     private fun subjectsDirtyKey(userId: String) = key(userId, "subjects_dirty")
     private fun queueKey(userId: String) = key(userId, "analytics_queue")
+    private fun themeKey(userId: String) = key(userId, "account_theme")
+    private fun themeDirtyKey(userId: String) = key(userId, "account_theme_dirty")
     private fun elapsedKey(userId: String) = key(userId, "timer_elapsed_ms")
     private fun startedKey(userId: String) = key(userId, "timer_started_at_ms")
     private fun checkpointKey(userId: String) = key(userId, "timer_checkpoint_at_ms")
@@ -211,7 +220,100 @@ class StudySyncManager(context: Context) {
             }
         } catch (_: Exception) {
             val latestCache = cachedSubjects(userId)
-            StudySubjectsLoad(latestCache ?: defaultSubjects, latestCache != null)
+            StudySubjectsLoad(latestCache ?: defaultSubjects, true)
+        }
+    }
+
+    fun cachedTheme(userId: String): String =
+        preferences.getString(themeKey(userId), "light")?.takeIf { it == "dark" } ?: "light"
+
+    fun saveTheme(userId: String, dark: Boolean) {
+        preferences.edit()
+            .putString(themeKey(userId), if (dark) "dark" else "light")
+            .putBoolean(themeDirtyKey(userId), true)
+            .commit()
+        StudySyncWorker.enqueue(appContext, userId)
+    }
+
+    suspend fun loadTheme(userId: String): Boolean = withContext(Dispatchers.IO) {
+        if (preferences.getBoolean(themeDirtyKey(userId), false)) {
+            return@withContext cachedTheme(userId) == "dark"
+        }
+        try {
+            val result = invokeFunction(buildJsonObject {
+                put("action", JsonPrimitive("settings_get"))
+            })
+            val settings = result["settings"] as? JsonObject
+            val cloudTheme = settings?.get("theme")?.jsonPrimitive?.contentOrNull
+                ?.takeIf { it == "dark" || it == "light" }
+            if (cloudTheme != null) {
+                preferences.edit()
+                    .putString(themeKey(userId), cloudTheme)
+                    .putBoolean(themeDirtyKey(userId), false)
+                    .apply()
+                cloudTheme == "dark"
+            } else {
+                cachedTheme(userId) == "dark"
+            }
+        } catch (_: Exception) {
+            cachedTheme(userId) == "dark"
+        }
+    }
+
+    suspend fun loadProfileAvatar(userId: String, googleAvatarUrl: String?): Bitmap? =
+        withContext(Dispatchers.IO) {
+            val customUrl = try {
+                val result = invokeFunction(buildJsonObject {
+                    put("action", JsonPrimitive("profile_picture_get"))
+                })
+                val exists = result["exists"]?.jsonPrimitive?.booleanOrNull == true
+                result["url"]?.jsonPrimitive?.contentOrNull?.takeIf { exists }
+            } catch (_: Exception) {
+                null
+            }
+            for (candidate in listOfNotNull(customUrl, googleAvatarUrl).distinct()) {
+                val bitmap = downloadAvatar(candidate)
+                if (bitmap != null) return@withContext bitmap
+            }
+            null
+        }
+
+    private fun downloadAvatar(imageUrl: String): Bitmap? {
+        var connection: HttpURLConnection? = null
+        return try {
+            val parsed = URL(imageUrl)
+            if (parsed.protocol != "https") return null
+            connection = parsed.openConnection() as? HttpURLConnection ?: return null
+            connection.connectTimeout = 8_000
+            connection.readTimeout = 8_000
+            connection.instanceFollowRedirects = true
+            connection.connect()
+            if (connection.responseCode !in 200..299) return null
+            val bytes = connection.inputStream.use { input ->
+                val output = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                var total = 0
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    if (total > 8 * 1024 * 1024) return null
+                    output.write(buffer, 0, count)
+                }
+                output.toByteArray()
+            }
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+            val sample = (max(bounds.outWidth, bounds.outHeight) / 512).coerceAtLeast(1)
+            BitmapFactory.decodeByteArray(
+                bytes, 0, bytes.size,
+                BitmapFactory.Options().apply { inSampleSize = sample }
+            )
+        } catch (_: Exception) {
+            null
+        } finally {
+            connection?.disconnect()
         }
     }
 
@@ -222,6 +324,16 @@ class StudySyncManager(context: Context) {
                 return@withLock false
             }
             try {
+                if (preferences.getBoolean(themeDirtyKey(userId), false)) {
+                    val theme = cachedTheme(userId)
+                    invokeFunction(buildJsonObject {
+                        put("action", JsonPrimitive("settings_update"))
+                        put("settings", buildJsonObject {
+                            put("theme", JsonPrimitive(theme))
+                        })
+                    })
+                    preferences.edit().putBoolean(themeDirtyKey(userId), false).apply()
+                }
                 if (preferences.getBoolean(subjectsDirtyKey(userId), false)) {
                     syncSubjects(userId)
                 }
