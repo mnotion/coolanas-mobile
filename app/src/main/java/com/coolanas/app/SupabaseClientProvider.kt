@@ -16,6 +16,5 @@ object SupabaseClientProvider {
             host = "auth-callback"
         }
         install(Functions)
-        }
     }
 }
