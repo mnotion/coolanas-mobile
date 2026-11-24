@@ -1,16 +1,15 @@
 package com.coolanas.app
 
 import io.github.jan.supabase.createSupabaseClient
-import io.github.jan.supabase.gotrue.FlowType
-import io.github.jan.supabase.gotrue.GoTrue
-import io.github.jan.supabase.gotrue.gotrue
+import io.github.jan.supabase.auth.Auth
+import io.github.jan.supabase.auth.FlowType
 
 object SupabaseClientProvider {
     val client = createSupabaseClient(
         supabaseUrl = BuildConfig.SUPABASE_URL,
         supabaseKey = BuildConfig.SUPABASE_PUBLISHABLE_KEY,
     ) {
-        install(GoTrue) {
+        install(Auth) {
             flowType = FlowType.PKCE
             scheme = "coolanas"
             host = "auth-callback"
