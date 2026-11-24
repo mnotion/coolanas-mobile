@@ -9,7 +9,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateColorAsState
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -736,13 +736,14 @@ private fun TimerControlButton(
         )
     ) {
         Canvas(Modifier.padding(if (icon == TimerControlIcon.Play) 14.dp else 12.dp)) {
+            val canvasSize = this.size
             when (icon) {
                 TimerControlIcon.Reset -> drawResetIcon(foreground)
                 TimerControlIcon.Play -> {
                     val path = Path().apply {
-                        moveTo(size.width * 0.22f, size.height * 0.08f)
-                        lineTo(size.width * 0.88f, size.height * 0.5f)
-                        lineTo(size.width * 0.22f, size.height * 0.92f)
+                        moveTo(canvasSize.width * 0.22f, canvasSize.height * 0.08f)
+                        lineTo(canvasSize.width * 0.88f, canvasSize.height * 0.5f)
+                        lineTo(canvasSize.width * 0.22f, canvasSize.height * 0.92f)
                         close()
                     }
                     drawPath(path, foreground)
@@ -750,14 +751,14 @@ private fun TimerControlButton(
                 TimerControlIcon.Pause -> {
                     drawRoundRect(
                         foreground,
-                        topLeft = Offset(size.width * 0.16f, size.height * 0.08f),
-                        size = androidx.compose.ui.geometry.Size(size.width * 0.24f, size.height * 0.84f),
+                        topLeft = Offset(canvasSize.width * 0.16f, canvasSize.height * 0.08f),
+                        size = androidx.compose.ui.geometry.Size(canvasSize.width * 0.24f, canvasSize.height * 0.84f),
                         cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx())
                     )
                     drawRoundRect(
                         foreground,
-                        topLeft = Offset(size.width * 0.60f, size.height * 0.08f),
-                        size = androidx.compose.ui.geometry.Size(size.width * 0.24f, size.height * 0.84f),
+                        topLeft = Offset(canvasSize.width * 0.60f, canvasSize.height * 0.08f),
+                        size = androidx.compose.ui.geometry.Size(canvasSize.width * 0.24f, canvasSize.height * 0.84f),
                         cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx())
                     )
                 }
