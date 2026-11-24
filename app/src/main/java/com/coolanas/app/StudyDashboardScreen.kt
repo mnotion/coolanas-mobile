@@ -95,6 +95,9 @@ fun StudyDashboardScreen(
 
     LaunchedEffect(userId, syncVersion) {
         if (syncVersion > 0) {
+            val loaded = withContext(Dispatchers.IO) { repository.loadSubjects(userId) }
+            subjects = loaded.subjects
+            subjectsEditable = loaded.editable
             val synced = withContext(Dispatchers.IO) { repository.syncPending(userId) }
             syncLabel = if (synced) "Synced with Coolanas" else "Saved on this phone · waiting to sync"
             onSyncStatus(synced)
