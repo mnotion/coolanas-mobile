@@ -81,8 +81,8 @@ class StudySyncManager(context: Context) {
             StudySubject("Computer Science", 0)
         )
         val subjectPalette = listOf(
-            0xFFE7E7E7, 0xFFF6CACA, 0xFFF6DFAA, 0xFFD9EDBD,
-            0xFFC9E7EF, 0xFFD7D0F2, 0xFFF0CCE8
+            0xFFE7E7E7.toInt(), 0xFFF6CACA.toInt(), 0xFFF6DFAA.toInt(), 0xFFD9EDBD.toInt(),
+            0xFFC9E7EF.toInt(), 0xFFD7D0F2.toInt(), 0xFFF0CCE8.toInt()
         )
     }
 
