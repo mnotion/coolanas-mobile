@@ -8,6 +8,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.Constraints
 import androidx.work.Data
 import androidx.work.WorkManager
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.functions.functions
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
@@ -15,6 +16,7 @@ import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -171,9 +173,6 @@ class StudySyncManager(context: Context) {
             .putString(queueKey(userId), encodeAnalyticsQueue(queue))
             .putLong(checkpointKey(userId), endAt)
         val saved = editor.commit()
-        if (saved && newRecords.isNotEmpty()) {
-            StudySyncWorker.enqueue(appContext, userId)
-        }
         return saved
     }
 
