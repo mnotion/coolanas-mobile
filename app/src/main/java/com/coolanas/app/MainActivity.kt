@@ -38,6 +38,9 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.handleDeeplinks
 import io.github.jan.supabase.auth.providers.Google
 import io.github.jan.supabase.auth.status.SessionStatus
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -62,7 +65,9 @@ class MainActivity : ComponentActivity() {
         studySyncManager = StudySyncManager(applicationContext)
         handleAuthDeeplink(intent)
         setContent {
-            CoolanasTheme {
+            var darkMode by remember { mutableStateOf(false) }
+            var accountProfile by remember { mutableStateOf(CoolanasAccountProfile()) }
+            CoolanasTheme(darkMode = darkMode) {
                 var authenticatedUserId by remember { mutableStateOf<String?>(null) }
                 var isStartingLogin by remember { mutableStateOf(false) }
                 var errorLog by remember { mutableStateOf<String?>(null) }
@@ -80,7 +85,20 @@ class MainActivity : ComponentActivity() {
                         SupabaseClientProvider.client.auth.sessionStatus.collect { status ->
                             when (status) {
                                 is SessionStatus.Authenticated -> {
-                                    val userId = status.session.user?.id
+                                    val user = status.session.user
+                                    val userId = user?.id
+                                    val metadata = user?.userMetadata
+                                    fun metadataValue(vararg keys: String): String? =
+                                        keys.firstNotNullOfOrNull { key ->
+                                            try { metadata?.get(key)?.jsonPrimitive?.contentOrNull }
+                                            catch (_: Exception) { null }
+                                        }
+                                    accountProfile = CoolanasAccountProfile(
+                                        name = metadataValue("full_name", "name", "user_name")
+                                            ?: user?.email ?: "Account",
+                                        email = user?.email.orEmpty(),
+                                        googleAvatarUrl = metadataValue("avatar_url", "picture")
+                                    )
                                     authenticatedUserId = userId
                                     activeUserId = userId
                                     if (userId != null) StudySyncWorker.enqueue(applicationContext, userId)
@@ -88,6 +106,8 @@ class MainActivity : ComponentActivity() {
                                 is SessionStatus.NotAuthenticated -> {
                                     authenticatedUserId = null
                                     activeUserId = null
+                                    darkMode = false
+                                    accountProfile = CoolanasAccountProfile()
                                 }
                                 else -> Unit
                             }
@@ -110,6 +130,9 @@ class MainActivity : ComponentActivity() {
                             userId = userId,
                             repository = studySyncManager,
                             syncVersion = syncTrigger,
+                            darkMode = darkMode,
+                            accountProfile = accountProfile,
+                            onThemeChanged = { darkMode = it },
                             onSignOut = {
                                 scope.launch {
                                     try {
@@ -121,8 +144,7 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
                                 }
-                            },
-                            onSyncStatus = {}
+                            }
                         )
                     } else {
                         Column(
