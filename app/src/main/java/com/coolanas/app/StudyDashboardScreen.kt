@@ -8,6 +8,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloat
@@ -126,12 +127,12 @@ fun StudyDashboardScreen(
     }
     val animatedBackground by animateColorAsState(
         targetValue = pageBackground,
-        animationSpec = tween(450),
+        animationSpec = tween(700, easing = FastOutSlowInEasing),
         label = "timer-page-background"
     )
     val timerScale by animateFloatAsState(
         targetValue = if (timerRunning) 1.04f else 1f,
-        animationSpec = tween(350),
+        animationSpec = tween(600, easing = FastOutSlowInEasing),
         label = "timer-focus-scale"
     )
     val cardBackground = if (darkMode && !timerRunning && !timerPaused) {
@@ -148,11 +149,6 @@ fun StudyDashboardScreen(
         Color(0xFFB7BAC1)
     } else {
         Color(0xFF666666)
-    }
-    val borderColour = if (darkMode && !timerRunning && !timerPaused) {
-        Color(0xFF4D5058)
-    } else {
-        Color(0xFFE5E5E5)
     }
     val activeSubjectName = timer.runningSubject ?: selectedSubject
     val activeSubjectColour = Color(
@@ -330,10 +326,12 @@ fun StudyDashboardScreen(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(top = 18.dp, end = 20.dp),
-            enter = fadeIn(tween(520)) + scaleIn(initialScale = 0.86f, animationSpec = tween(650)) +
-                slideInVertically(initialOffsetY = { -18 }, animationSpec = tween(650)),
-            exit = fadeOut(tween(220)) + scaleOut(targetScale = 0.86f, animationSpec = tween(220)) +
-                slideOutVertically(targetOffsetY = { -12 }, animationSpec = tween(220))
+            enter = fadeIn(tween(750, easing = FastOutSlowInEasing)) +
+                scaleIn(initialScale = 0.86f, animationSpec = tween(850, easing = FastOutSlowInEasing)) +
+                slideInVertically(initialOffsetY = { -18 }, animationSpec = tween(850, easing = FastOutSlowInEasing)),
+            exit = fadeOut(tween(320, easing = FastOutSlowInEasing)) +
+                scaleOut(targetScale = 0.86f, animationSpec = tween(320, easing = FastOutSlowInEasing)) +
+                slideOutVertically(targetOffsetY = { -12 }, animationSpec = tween(320, easing = FastOutSlowInEasing))
         ) {
             Box {
                 Surface(
@@ -401,11 +399,6 @@ fun StudyDashboardScreen(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("Dark mode", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
-                                Text(
-                                    "Syncs across your Coolanas account",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 11.sp
-                                )
                             }
                             Switch(
                                 checked = darkMode,
@@ -436,9 +429,10 @@ fun StudyDashboardScreen(
         AnimatedVisibility(
             visible = entryVisible,
             modifier = Modifier.align(Alignment.Center),
-            enter = fadeIn(tween(700)) + scaleIn(initialScale = 0.88f, animationSpec = tween(760)) +
-                slideInVertically(initialOffsetY = { 22 }, animationSpec = tween(760)),
-            exit = fadeOut(tween(180))
+            enter = fadeIn(tween(900, easing = FastOutSlowInEasing)) +
+                scaleIn(initialScale = 0.88f, animationSpec = tween(950, easing = FastOutSlowInEasing)) +
+                slideInVertically(initialOffsetY = { 22 }, animationSpec = tween(950, easing = FastOutSlowInEasing)),
+            exit = fadeOut(tween(320, easing = FastOutSlowInEasing))
         ) {
             Surface(
                 modifier = Modifier
@@ -448,14 +442,9 @@ fun StudyDashboardScreen(
                         scaleX = timerScale
                         scaleY = timerScale
                     }
-                    .animateContentSize(tween(350))
-                    .shadow(if (timerRunning) 16.dp else 6.dp, RoundedCornerShape(17.dp)),
+                    .animateContentSize(tween(550, easing = FastOutSlowInEasing)),
                 shape = RoundedCornerShape(17.dp),
-                color = if (timerRunning || timerPaused) Color(0xFFFDFDFD) else cardBackground,
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    if (timerPaused) Color(0xFFD3BD70) else borderColour
-                )
+                color = if (timerRunning || timerPaused) Color(0xFFFDFDFD) else cardBackground
             ) {
                 Box(
                     modifier = Modifier.padding(
@@ -519,8 +508,10 @@ fun StudyDashboardScreen(
             modifier = Modifier
                 .align(Alignment.Center)
                 .offset(y = if (timerPaused) 73.dp else 72.dp),
-            enter = fadeIn(tween(320)) + scaleIn(initialScale = 0.9f, animationSpec = tween(320)),
-            exit = fadeOut(tween(180)) + scaleOut(targetScale = 0.9f, animationSpec = tween(180))
+            enter = fadeIn(tween(500, easing = FastOutSlowInEasing)) +
+                scaleIn(initialScale = 0.9f, animationSpec = tween(500, easing = FastOutSlowInEasing)),
+            exit = fadeOut(tween(300, easing = FastOutSlowInEasing)) +
+                scaleOut(targetScale = 0.9f, animationSpec = tween(300, easing = FastOutSlowInEasing))
         ) {
             val colourIndex = subjects.firstOrNull { it.name == shownSubject }?.color ?: 0
             Surface(
@@ -542,10 +533,12 @@ fun StudyDashboardScreen(
             modifier = Modifier
                 .align(Alignment.Center)
                 .offset(y = if (timerPaused) 160.dp else 68.dp),
-            enter = fadeIn(tween(420)) + scaleIn(initialScale = 0.88f, animationSpec = tween(520)) +
-                slideInVertically(initialOffsetY = { 16 }, animationSpec = tween(520)),
-            exit = fadeOut(tween(200)) + scaleOut(targetScale = 0.88f, animationSpec = tween(200)) +
-                slideOutVertically(targetOffsetY = { 12 }, animationSpec = tween(200))
+            enter = fadeIn(tween(650, easing = FastOutSlowInEasing)) +
+                scaleIn(initialScale = 0.88f, animationSpec = tween(700, easing = FastOutSlowInEasing)) +
+                slideInVertically(initialOffsetY = { 16 }, animationSpec = tween(700, easing = FastOutSlowInEasing)),
+            exit = fadeOut(tween(320, easing = FastOutSlowInEasing)) +
+                scaleOut(targetScale = 0.88f, animationSpec = tween(320, easing = FastOutSlowInEasing)) +
+                slideOutVertically(targetOffsetY = { 12 }, animationSpec = tween(320, easing = FastOutSlowInEasing))
         ) {
             LazyRow(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
