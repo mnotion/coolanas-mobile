@@ -1,33 +1,50 @@
 package com.coolanas.app
 
-import androidx.compose.foundation.BorderStroke
+import android.graphics.Bitmap
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateColorAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -40,69 +57,132 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.max
 
+data class CoolanasAccountProfile(
+    val name: String = "Account",
+    val email: String = "",
+    val googleAvatarUrl: String? = null
+)
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun StudyDashboardScreen(
     userId: String,
     repository: StudySyncManager,
     syncVersion: Int,
-    onSignOut: () -> Unit,
-    onSyncStatus: (Boolean) -> Unit
+    darkMode: Boolean,
+    accountProfile: CoolanasAccountProfile,
+    onThemeChanged: (Boolean) -> Unit,
+    onSignOut: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val cached = remember(userId) { repository.cachedSubjects(userId) }
     var subjects by remember(userId) {
         mutableStateOf(cached ?: StudySyncManager.defaultSubjects)
     }
-    var subjectsEditable by remember(userId) { mutableStateOf(cached != null) }
+    var subjectsEditable by remember(userId) { mutableStateOf(true) }
     var selectedSubject by remember(userId) {
         mutableStateOf(repository.selectedSubject(userId))
     }
     var timer by remember(userId) { mutableStateOf(repository.timerState(userId)) }
     var now by remember(userId) { mutableLongStateOf(System.currentTimeMillis()) }
-    var syncLabel by remember(userId) {
-        mutableStateOf(if (cached != null) "Saved on this phone" else "Loading your subjects…")
-    }
+    var avatar by remember(userId) { mutableStateOf<Bitmap?>(null) }
+    var entryVisible by remember(userId) { mutableStateOf(false) }
+    var accountMenuOpen by remember(userId) { mutableStateOf(false) }
+    var subjectMenu by remember(userId) { mutableStateOf<String?>(null) }
     var editorSubject by remember(userId) { mutableStateOf<StudySubject?>(null) }
-    var showAddSubject by remember(userId) { mutableStateOf(false) }
+    var showSubjectEditor by remember(userId) { mutableStateOf(false) }
+
+    val timerRunning = timer.startedAtMs != null
+    val timerPaused = !timerRunning && timer.elapsedMs > 0L
+    val pageBackground = when {
+        timerRunning -> Color(0xFF080808)
+        timerPaused -> Color(0xFFE9D99A)
+        darkMode -> Color(0xFF17191D)
+        else -> Color(0xFFDEDEDE)
+    }
+    val animatedBackground by animateColorAsState(
+        targetValue = pageBackground,
+        animationSpec = tween(450),
+        label = "timer-page-background"
+    )
+    val timerScale by animateFloatAsState(
+        targetValue = if (timerRunning) 1.04f else 1f,
+        animationSpec = tween(350),
+        label = "timer-focus-scale"
+    )
+    val cardBackground = if (darkMode && !timerRunning && !timerPaused) {
+        Color(0xFF24262B)
+    } else {
+        Color(0xFFF7F7F7)
+    }
+    val mainText = if (darkMode && !timerRunning && !timerPaused) {
+        Color(0xFFF4F4F4)
+    } else {
+        Color(0xFF171717)
+    }
+    val secondaryText = if (darkMode && !timerRunning && !timerPaused) {
+        Color(0xFFB7BAC1)
+    } else {
+        Color(0xFF666666)
+    }
+    val borderColour = if (darkMode && !timerRunning && !timerPaused) {
+        Color(0xFF4D5058)
+    } else {
+        Color(0xFFE5E5E5)
+    }
 
     LaunchedEffect(userId) {
+        entryVisible = false
         if (timer.startedAtMs != null) {
             withContext(Dispatchers.IO) { repository.checkpointTimer(userId) }
             timer = repository.timerState(userId)
         }
-        val loaded = withContext(Dispatchers.IO) { repository.loadSubjects(userId) }
-        subjects = loaded.subjects
-        subjectsEditable = loaded.editable
+        val loadedSubjects = withContext(Dispatchers.IO) { repository.loadSubjects(userId) }
+        subjects = loadedSubjects.subjects
+        subjectsEditable = loadedSubjects.editable
         if (selectedSubject != null && subjects.none { it.name == selectedSubject }) {
             selectedSubject = null
             repository.selectSubject(userId, null)
         }
-        val synced = withContext(Dispatchers.IO) { repository.syncPending(userId) }
-        syncLabel = if (synced) "Synced with Coolanas" else "Saved on this phone · waiting to sync"
-        onSyncStatus(synced)
+        val cloudDarkMode = withContext(Dispatchers.IO) { repository.loadTheme(userId) }
+        onThemeChanged(cloudDarkMode)
+        avatar = withContext(Dispatchers.IO) {
+            repository.loadProfileAvatar(userId, accountProfile.googleAvatarUrl)
+        }
+        withContext(Dispatchers.IO) { repository.syncPending(userId) }
+        delay(65L)
+        entryVisible = true
     }
 
     LaunchedEffect(userId, syncVersion) {
         if (syncVersion > 0) {
-            val loaded = withContext(Dispatchers.IO) { repository.loadSubjects(userId) }
-            subjects = loaded.subjects
-            subjectsEditable = loaded.editable
-            val synced = withContext(Dispatchers.IO) { repository.syncPending(userId) }
-            syncLabel = if (synced) "Synced with Coolanas" else "Saved on this phone · waiting to sync"
-            onSyncStatus(synced)
+            val loadedSubjects = withContext(Dispatchers.IO) { repository.loadSubjects(userId) }
+            subjects = loadedSubjects.subjects
+            subjectsEditable = loadedSubjects.editable
+            val cloudDarkMode = withContext(Dispatchers.IO) { repository.loadTheme(userId) }
+            onThemeChanged(cloudDarkMode)
+            withContext(Dispatchers.IO) { repository.syncPending(userId) }
         }
     }
 
@@ -118,26 +198,18 @@ fun StudyDashboardScreen(
                 val checkpointTime = now
                 withContext(Dispatchers.IO) {
                     repository.checkpointTimer(userId, checkpointTime)
+                    repository.syncPending(userId)
                 }
                 lastCheckpointAt = checkpointTime
-                val synced = withContext(Dispatchers.IO) { repository.syncPending(userId) }
-                syncLabel = if (synced) "Synced with Coolanas" else "Saved on this phone · waiting to sync"
-                onSyncStatus(synced)
                 timer = repository.timerState(userId)
             }
-            delay(1_000L)
+            delay(250L)
         }
-    }
-
-    fun refreshAfterLocalChange() {
-        timer = repository.timerState(userId)
     }
 
     fun syncInBackground() {
         scope.launch {
-            val synced = withContext(Dispatchers.IO) { repository.syncPending(userId) }
-            syncLabel = if (synced) "Synced with Coolanas" else "Saved on this phone · waiting to sync"
-            onSyncStatus(synced)
+            withContext(Dispatchers.IO) { repository.syncPending(userId) }
         }
     }
 
@@ -148,295 +220,557 @@ fun StudyDashboardScreen(
             repository.selectSubject(userId, null)
         }
         repository.saveSubjects(userId, updated)
-        syncLabel = "Saved on this phone · syncing"
         syncInBackground()
     }
+
+    fun setAccountTheme(nextDarkMode: Boolean) {
+        onThemeChanged(nextDarkMode)
+        repository.saveTheme(userId, nextDarkMode)
+        syncInBackground()
+    }
+
+    val glowTransition = rememberInfiniteTransition(label = "timer-glow")
+    val greenDrift by glowTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(15_000),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "green-drift"
+    )
+    val redPulse by glowTransition.animateFloat(
+        initialValue = 0.34f,
+        targetValue = 0.72f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(8_000),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "red-pulse"
+    )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFDEDEDE))
-            .padding(horizontal = 22.dp, vertical = 20.dp),
+            .background(animatedBackground),
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().widthIn(max = 480.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Coolanas",
-                    fontSize = 25.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF171717)
+        if (timerRunning) {
+            Canvas(Modifier.fillMaxSize()) {
+                val radius = max(size.width, size.height) * 0.9f
+                drawRect(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF8F1424).copy(alpha = redPulse * 0.48f),
+                            Color(0xFF5C0812).copy(alpha = redPulse * 0.23f),
+                            Color.Transparent
+                        ),
+                        center = Offset(size.width * 0.5f, size.height * 0.48f),
+                        radius = radius
+                    )
                 )
-                TextButton(onClick = onSignOut) {
-                    Text("Sign out", color = Color(0xFF555555))
+                drawRect(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF239451).copy(alpha = 0.35f),
+                            Color(0xFF12693A).copy(alpha = 0.17f),
+                            Color.Transparent
+                        ),
+                        center = Offset(
+                            size.width * (0.24f + greenDrift * 0.52f),
+                            size.height * (0.34f + (1f - greenDrift) * 0.34f)
+                        ),
+                        radius = radius * 0.76f
+                    )
+                )
+                drawRect(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF26965A).copy(alpha = 0.2f),
+                            Color.Transparent
+                        ),
+                        center = Offset(
+                            size.width * (0.78f - greenDrift * 0.3f),
+                            size.height * (0.72f - greenDrift * 0.24f)
+                        ),
+                        radius = radius * 0.58f
+                    )
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = entryVisible && !timerRunning,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 18.dp, end = 20.dp),
+            enter = fadeIn(tween(520)) + scaleIn(initialScale = 0.86f, animationSpec = tween(650)) +
+                slideInVertically(initialOffsetY = { -18 }, animationSpec = tween(650)),
+            exit = fadeOut(tween(220)) + scaleOut(targetScale = 0.86f, animationSpec = tween(220)) +
+                slideOutVertically(targetOffsetY = { -12 }, animationSpec = tween(220))
+        ) {
+            Box {
+                Surface(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .shadow(5.dp, CircleShape)
+                        .combinedClickable(
+                            onClick = { accountMenuOpen = true }
+                        ),
+                    shape = CircleShape,
+                    color = if (darkMode) Color(0xFF303238) else Color(0xFFEEEEEE),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (darkMode) Color(0xFF555861) else Color(0xFFD5D5D5)
+                    )
+                ) {
+                    if (avatar != null) {
+                        androidx.compose.foundation.Image(
+                            bitmap = avatar!!.asImageBitmap(),
+                            contentDescription = "Account menu",
+                            modifier = Modifier.fillMaxSize().clip(CircleShape)
+                        )
+                    } else {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = accountProfile.name.trim().firstOrNull()?.uppercase() ?: "?",
+                                color = mainText,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+                DropdownMenu(
+                    expanded = accountMenuOpen,
+                    onDismissRequest = { accountMenuOpen = false }
+                ) {
+                    Column(
+                        modifier = Modifier.width(254.dp).padding(horizontal = 14.dp, vertical = 10.dp)
+                    ) {
+                        Text(
+                            accountProfile.name,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 15.sp
+                        )
+                        if (accountProfile.email.isNotBlank()) {
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                accountProfile.email,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp
+                            )
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().height(1.dp),
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+                        ) {}
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Dark mode", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+                                Text(
+                                    "Syncs across your Coolanas account",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 11.sp
+                                )
+                            }
+                            Switch(
+                                checked = darkMode,
+                                onCheckedChange = {
+                                    setAccountTheme(it)
+                                    accountMenuOpen = false
+                                }
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().height(1.dp),
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+                        ) {}
+                        DropdownMenuItem(
+                            text = { Text("Sign out") },
+                            onClick = {
+                                accountMenuOpen = false
+                                onSignOut()
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 7.dp)
+                        )
+                    }
                 }
             }
+        }
 
-            Spacer(Modifier.height(30.dp))
-
+        AnimatedVisibility(
+            visible = entryVisible,
+            modifier = Modifier.align(Alignment.Center),
+            enter = fadeIn(tween(700)) + scaleIn(initialScale = 0.88f, animationSpec = tween(760)) +
+                slideInVertically(initialOffsetY = { 22 }, animationSpec = tween(760)),
+            exit = fadeOut(tween(180))
+        ) {
             Surface(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .shadow(if (timer.startedAtMs != null) 18.dp else 6.dp, RoundedCornerShape(18.dp)),
-                shape = RoundedCornerShape(18.dp),
-                color = if (timer.startedAtMs != null) Color(0xFFFDFDFD) else Color(0xFFF7F7F7),
-                border = BorderStroke(1.dp, if (timer.startedAtMs != null) Color(0xFFE6E6E6) else Color(0xFFE5E5E5))
+                    .fillMaxWidth(0.9f)
+                    .widthIn(max = if (timerRunning) 490.dp else 390.dp)
+                    .graphicsLayer {
+                        scaleX = timerScale
+                        scaleY = timerScale
+                    }
+                    .animateContentSize(tween(350))
+                    .shadow(if (timerRunning) 16.dp else 6.dp, RoundedCornerShape(17.dp)),
+                shape = RoundedCornerShape(17.dp),
+                color = if (timerRunning || timerPaused) Color(0xFFFDFDFD) else cardBackground,
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (timerPaused) Color(0xFFD3BD70) else borderColour
+                )
             ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                Box(
+                    modifier = Modifier.padding(
+                        horizontal = if (timerRunning) 20.dp else 14.dp,
+                        vertical = if (timerRunning) 18.dp else 13.dp
+                    )
                 ) {
                     Text(
                         text = formatStudyTime(timer.elapsedAt(now)),
-                        fontSize = if (timer.startedAtMs != null) 43.sp else 36.sp,
+                        modifier = Modifier.align(Alignment.Center),
+                        fontSize = if (timerRunning) 44.sp else 34.sp,
                         fontWeight = FontWeight.SemiBold,
-                        letterSpacing = (-1.5).sp,
+                        letterSpacing = (-1.8).sp,
                         color = Color(0xFF171717),
                         textAlign = TextAlign.Center
                     )
-                    Spacer(Modifier.height(12.dp))
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(if (timerRunning) 54.dp else 46.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        TimerCircleButton(
-                            label = "↻",
+                        TimerControlButton(
                             contentDescription = "Reset timer",
+                            size = if (timerRunning) 42.dp else 38.dp,
                             background = Color.White,
                             foreground = Color(0xFF555555),
-                            size = 42.dp,
                             onClick = {
                                 timer = repository.resetTimer(userId)
+                                accountMenuOpen = false
+                                subjectMenu = null
                                 syncInBackground()
-                            }
+                            },
+                            icon = TimerControlIcon.Reset
                         )
-                        TimerCircleButton(
-                            label = if (timer.startedAtMs != null) "Ⅱ" else "▶",
-                            contentDescription = if (timer.startedAtMs != null) "Pause timer" else "Start timer",
-                            background = if (timer.startedAtMs != null) Color(0xFF171717) else Color(0xFF222222),
-                            foreground = Color.White,
-                            size = 52.dp,
-                            enabled = subjectsEditable && (timer.startedAtMs != null || !selectedSubject.isNullOrBlank()),
+                        TimerControlButton(
+                            contentDescription = if (timerRunning) "Pause timer" else "Start timer",
+                            size = if (timerRunning) 54.dp else 46.dp,
+                            background = if (timerPaused) Color(0xFFD6B84E) else Color(0xFF171717),
+                            foreground = if (timerPaused) Color(0xFF17140A) else Color.White,
                             onClick = {
-                                timer = if (timer.startedAtMs != null) {
+                                timer = if (timerRunning) {
                                     repository.pauseTimer(userId)
                                 } else {
                                     repository.startTimer(userId, selectedSubject.orEmpty())
                                 }
-                                refreshAfterLocalChange()
                                 syncInBackground()
-                            }
-                        )
-                    }
-                    val shownSubject = timer.runningSubject ?: selectedSubject
-                    if (!shownSubject.isNullOrBlank()) {
-                        Spacer(Modifier.height(10.dp))
-                        Text(
-                            text = shownSubject,
-                            fontSize = 13.sp,
-                            color = Color(0xFF555555),
-                            modifier = Modifier
-                                .background(
-                                    color = StudySyncManager.subjectPalette[
-                                        subjects.firstOrNull { it.name == shownSubject }?.color ?: 0
-                                    ].let { Color(it) },
-                                    shape = RoundedCornerShape(20.dp)
-                                )
-                                .padding(horizontal = 12.dp, vertical = 5.dp)
+                            },
+                            icon = if (timerRunning) TimerControlIcon.Pause else TimerControlIcon.Play,
+                            enabled = subjectsEditable && (timerRunning || !selectedSubject.isNullOrBlank())
                         )
                     }
                 }
             }
+        }
 
-            if (timer.startedAtMs == null) {
-                Spacer(Modifier.height(26.dp))
+        val shownSubject = timer.runningSubject ?: selectedSubject
+        AnimatedVisibility(
+            visible = entryVisible && !shownSubject.isNullOrBlank() && (timerRunning || timerPaused),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(y = if (timerPaused) 73.dp else 72.dp),
+            enter = fadeIn(tween(320)) + scaleIn(initialScale = 0.9f, animationSpec = tween(320)),
+            exit = fadeOut(tween(180)) + scaleOut(targetScale = 0.9f, animationSpec = tween(180))
+        ) {
+            val colourIndex = subjects.firstOrNull { it.name == shownSubject }?.color ?: 0
+            Surface(
+                shape = CircleShape,
+                color = Color(StudySyncManager.subjectPalette[colourIndex]),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFD8D8D8))
+            ) {
                 Text(
-                    text = if (subjectsEditable) "Subjects" else "Connect to load your subjects",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color(0xFF555555)
+                    text = shownSubject.orEmpty(),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    color = Color(0xFF555555),
+                    fontSize = 12.sp
                 )
-                Spacer(Modifier.height(10.dp))
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    items(subjects, key = { it.name }) { subject ->
-                        var menuOpen by remember(subject.name) { mutableStateOf(false) }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Box {
-                                FilterChip(
-                                    selected = selectedSubject == subject.name,
-                                    onClick = {
-                                        selectedSubject = subject.name
-                                        repository.selectSubject(userId, subject.name)
-                                        timer = repository.timerState(userId)
-                                    },
-                                    label = { Text(subject.name, maxLines = 1) },
-                                    enabled = subjectsEditable,
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = Color(StudySyncManager.subjectPalette[subject.color]),
-                                        containerColor = Color(0xFFF7F7F7),
-                                        selectedLabelColor = Color(0xFF333333),
-                                        labelColor = Color(0xFF444444)
-                                    ),
-                                )
-                                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                                    DropdownMenuItem(
-                                        text = { Text("Edit subject") },
-                                        onClick = {
-                                            menuOpen = false
-                                            editorSubject = subject
-                                        }
-                                    )
-                                }
-                            }
-                            TextButton(
-                                onClick = { menuOpen = true },
+            }
+        }
+
+        AnimatedVisibility(
+            visible = entryVisible && !timerRunning,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(y = if (timerPaused) 160.dp else 68.dp),
+            enter = fadeIn(tween(420)) + scaleIn(initialScale = 0.88f, animationSpec = tween(520)) +
+                slideInVertically(initialOffsetY = { 16 }, animationSpec = tween(520)),
+            exit = fadeOut(tween(200)) + scaleOut(targetScale = 0.88f, animationSpec = tween(200)) +
+                slideOutVertically(targetOffsetY = { 12 }, animationSpec = tween(200))
+        ) {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+                contentPadding = PaddingValues(horizontal = 2.dp)
+            ) {
+                items(subjects, key = { it.name }) { subject ->
+                    Box {
+                        val chosen = selectedSubject == subject.name
+                        Surface(
+                            modifier = Modifier.combinedClickable(
                                 enabled = subjectsEditable,
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                            ) {
-                                Text("•••", fontSize = 11.sp, color = Color(0xFF777777))
-                            }
-                        }
-                    }
-                    item {
-                        Button(
-                            onClick = { showAddSubject = true },
-                            enabled = subjectsEditable,
+                                onClick = {
+                                    selectedSubject = subject.name
+                                    repository.selectSubject(userId, subject.name)
+                                },
+                                onDoubleClick = {
+                                    subjectMenu = subject.name
+                                },
+                                onLongClick = {
+                                    subjectMenu = subject.name
+                                }
+                            ),
                             shape = CircleShape,
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 13.dp, vertical = 8.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFF7F7F7),
-                                contentColor = Color(0xFF333333)
+                            color = if (chosen || !darkMode) {
+                                Color(StudySyncManager.subjectPalette[subject.color])
+                            } else {
+                                Color(0xFF303238)
+                            },
+                            border = androidx.compose.foundation.BorderStroke(
+                                if (chosen) 2.dp else 1.dp,
+                                if (chosen) Color(0xFF333333) else MaterialTheme.colorScheme.outline
                             )
                         ) {
-                            Text("+", fontSize = 19.sp)
+                            Text(
+                                text = subject.name,
+                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
+                                color = if (chosen || !darkMode) Color(0xFF444444) else Color(0xFFEAEAEA),
+                                fontSize = 12.sp,
+                                maxLines = 1
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = subjectMenu == subject.name,
+                            onDismissRequest = { subjectMenu = null }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Rename") },
+                                onClick = {
+                                    subjectMenu = null
+                                    editorSubject = subject
+                                    showSubjectEditor = true
+                                }
+                            )
+                            Text(
+                                "Colour",
+                                modifier = Modifier.padding(start = 16.dp, top = 6.dp, bottom = 4.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp
+                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                StudySyncManager.subjectPalette.forEachIndexed { index, paletteColour ->
+                                    Surface(
+                                        modifier = Modifier
+                                            .size(22.dp)
+                                            .combinedClickable(
+                                                onClick = {
+                                                    val updated = subjects.map {
+                                                        if (it.name == subject.name) it.copy(color = index) else it
+                                                    }
+                                                    saveSubjectChanges(updated)
+                                                    subjectMenu = null
+                                                }
+                                            ),
+                                        shape = CircleShape,
+                                        color = Color(paletteColour),
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            if (subject.color == index) 2.dp else 1.dp,
+                                            if (subject.color == index) Color(0xFF333333) else Color(0xFFBBBBBB)
+                                        )
+                                    ) {}
+                                }
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                onClick = {
+                                    saveSubjectChanges(subjects.filterNot { it.name == subject.name })
+                                    subjectMenu = null
+                                }
+                            )
                         }
                     }
                 }
-                if (selectedSubject.isNullOrBlank()) {
-                    Spacer(Modifier.height(7.dp))
-                    Text(
-                        text = "Select a subject before starting the timer.",
-                        fontSize = 12.sp,
-                        color = Color(0xFF777777),
-                        textAlign = TextAlign.Center
-                    )
+                item {
+                    Surface(
+                        modifier = Modifier
+                            .size(30.dp)
+                            .combinedClickable(
+                                onClick = {
+                                    editorSubject = null
+                                    showSubjectEditor = true
+                                }
+                            ),
+                        shape = CircleShape,
+                        color = if (darkMode) Color(0xFF303238) else Color(0xFFFDFDFD),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (darkMode) Color(0xFF62656D) else Color(0xFFBBBBBB)
+                        )
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("+", fontSize = 19.sp, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
                 }
-            } else {
-                Spacer(Modifier.height(22.dp))
-                Text(
-                    text = "Focus session running",
-                    fontSize = 13.sp,
-                    color = Color(0xFF666666)
-                )
             }
-
-            Spacer(Modifier.height(18.dp))
-            Text(
-                text = syncLabel,
-                fontSize = 12.sp,
-                color = Color(0xFF686868),
-                textAlign = TextAlign.Center
-            )
-            Text(
-                text = "Your study analytics are available on the website.",
-                fontSize = 11.sp,
-                color = Color(0xFF888888),
-                textAlign = TextAlign.Center
-            )
         }
     }
 
-    if (showAddSubject || editorSubject != null) {
+    if (showSubjectEditor) {
         SubjectEditorDialog(
             subject = editorSubject,
+            darkMode = darkMode,
             onDismiss = {
-                showAddSubject = false
+                showSubjectEditor = false
                 editorSubject = null
             },
             onSave = { updated ->
-                val current = subjects.toMutableList()
                 val old = editorSubject
-                if (old == null) {
-                    if (current.none { it.name.equals(updated.name, ignoreCase = true) } && current.size < 40) {
-                        current.add(updated)
-                        selectedSubject = updated.name
-                        repository.selectSubject(userId, updated.name)
-                        saveSubjectChanges(current)
-                    }
-                } else {
-                    val index = current.indexOfFirst { it.name == old.name }
-                    if (index >= 0 && current.none { it.name.equals(updated.name, ignoreCase = true) && it.name != old.name }) {
-                        current[index] = updated
-                        if (selectedSubject == old.name) {
+                val duplicate = subjects.any {
+                    it.name.equals(updated.name, ignoreCase = true) && it.name != old?.name
+                }
+                if (!duplicate) {
+                    val current = subjects.toMutableList()
+                    if (old == null) {
+                        if (current.size < 40) {
+                            current.add(updated)
                             selectedSubject = updated.name
                             repository.selectSubject(userId, updated.name)
+                            saveSubjectChanges(current)
                         }
-                        saveSubjectChanges(current)
+                    } else {
+                        val index = current.indexOfFirst { it.name == old.name }
+                        if (index >= 0) {
+                            current[index] = updated
+                            if (selectedSubject == old.name) {
+                                selectedSubject = updated.name
+                                repository.selectSubject(userId, updated.name)
+                            }
+                            saveSubjectChanges(current)
+                        }
                     }
                 }
-                showAddSubject = false
-                editorSubject = null
-            },
-            onDelete = {
-                val current = subjects.filterNot { it.name == editorSubject?.name }
-                saveSubjectChanges(current)
-                showAddSubject = false
+                showSubjectEditor = false
                 editorSubject = null
             }
         )
     }
 }
 
+private enum class TimerControlIcon { Reset, Play, Pause }
+
 @Composable
-private fun TimerCircleButton(
-    label: String,
+private fun TimerControlButton(
     contentDescription: String,
+    size: Dp,
     background: Color,
     foreground: Color,
-    size: androidx.compose.ui.unit.Dp,
+    icon: TimerControlIcon,
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     Surface(
         modifier = Modifier
             .size(size)
-            .clickable(enabled = enabled, onClick = onClick)
-            .semantics { this.contentDescription = contentDescription },
+            .combinedClickable(enabled = enabled, onClick = onClick),
         shape = CircleShape,
-        color = background.copy(alpha = if (enabled) 1f else 0.45f),
-        border = BorderStroke(1.dp, Color(0xFFDADADA))
+        color = background.copy(alpha = if (enabled) 1f else 0.4f),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (icon == TimerControlIcon.Play || icon == TimerControlIcon.Pause) background else Color(0xFFDADADA)
+        )
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(label, color = foreground, fontSize = 20.sp, fontWeight = FontWeight.Medium)
+        Canvas(Modifier.padding(if (icon == TimerControlIcon.Play) 14.dp else 12.dp)) {
+            when (icon) {
+                TimerControlIcon.Reset -> drawResetIcon(foreground)
+                TimerControlIcon.Play -> {
+                    val path = Path().apply {
+                        moveTo(size.width * 0.22f, size.height * 0.08f)
+                        lineTo(size.width * 0.88f, size.height * 0.5f)
+                        lineTo(size.width * 0.22f, size.height * 0.92f)
+                        close()
+                    }
+                    drawPath(path, foreground)
+                }
+                TimerControlIcon.Pause -> {
+                    drawRoundRect(
+                        foreground,
+                        topLeft = Offset(size.width * 0.16f, size.height * 0.08f),
+                        size = androidx.compose.ui.geometry.Size(size.width * 0.24f, size.height * 0.84f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx())
+                    )
+                    drawRoundRect(
+                        foreground,
+                        topLeft = Offset(size.width * 0.60f, size.height * 0.08f),
+                        size = androidx.compose.ui.geometry.Size(size.width * 0.24f, size.height * 0.84f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx())
+                    )
+                }
+            }
         }
     }
+}
+
+private fun DrawScope.drawResetIcon(colour: Color) {
+    val strokeWidth = size.minDimension * 0.105f
+    drawArc(
+        color = colour,
+        startAngle = -48f,
+        sweepAngle = 302f,
+        useCenter = false,
+        style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
+        topLeft = Offset(size.width * 0.12f, size.height * 0.12f),
+        size = androidx.compose.ui.geometry.Size(size.width * 0.76f, size.height * 0.76f)
+    )
+    val arrow = Path().apply {
+        moveTo(size.width * 0.57f, size.height * 0.04f)
+        lineTo(size.width * 0.96f, size.height * 0.07f)
+        lineTo(size.width * 0.77f, size.height * 0.37f)
+        close()
+    }
+    drawPath(arrow, colour)
 }
 
 @Composable
 private fun SubjectEditorDialog(
     subject: StudySubject?,
+    darkMode: Boolean,
     onDismiss: () -> Unit,
-    onSave: (StudySubject) -> Unit,
-    onDelete: () -> Unit
+    onSave: (StudySubject) -> Unit
 ) {
     var name by remember(subject) { mutableStateOf(subject?.name ?: "") }
     var colorIndex by remember(subject) { mutableStateOf(subject?.color ?: 0) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (subject == null) "Add subject" else "Edit subject") },
+        title = { Text(if (subject == null) "Add subject" else "Rename subject") },
         text = {
             Column {
                 OutlinedTextField(
@@ -446,15 +780,17 @@ private fun SubjectEditorDialog(
                     label = { Text("Subject name") }
                 )
                 Spacer(Modifier.height(14.dp))
-                Text("Colour", fontSize = 13.sp, color = Color(0xFF666666))
+                Text("Colour", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     StudySyncManager.subjectPalette.forEachIndexed { index, colour ->
                         Surface(
-                            modifier = Modifier.size(28.dp).clickable { colorIndex = index },
+                            modifier = Modifier
+                                .size(28.dp)
+                                .combinedClickable(onClick = { colorIndex = index }),
                             shape = CircleShape,
                             color = Color(colour),
-                            border = BorderStroke(
+                            border = androidx.compose.foundation.BorderStroke(
                                 if (colorIndex == index) 2.dp else 1.dp,
                                 if (colorIndex == index) Color(0xFF333333) else Color(0xFFBBBBBB)
                             )
@@ -470,13 +806,11 @@ private fun SubjectEditorDialog(
             ) { Text("Save") }
         },
         dismissButton = {
-            Row {
-                if (subject != null) {
-                    TextButton(onClick = onDelete) { Text("Delete", color = Color(0xFFB3261E)) }
-                }
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-            }
-        }
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+        containerColor = if (darkMode) Color(0xFF292B31) else Color(0xFFFFFBFF),
+        titleContentColor = if (darkMode) Color(0xFFF4F4F4) else Color(0xFF171717),
+        textContentColor = if (darkMode) Color(0xFFE2E2E2) else Color(0xFF444444)
     )
 }
 
