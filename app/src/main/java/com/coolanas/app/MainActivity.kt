@@ -2,6 +2,7 @@ package com.coolanas.app
 
 import android.os.Bundle
 import android.util.Log
+import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -10,7 +11,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -29,13 +29,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.coolanas.app.ui.theme.CoolanasTheme
+import io.github.jan.supabase.gotrue.AuthEvent
 import io.github.jan.supabase.gotrue.SessionStatus
-import io.github.jan.supabase.gotrue.handleDeeplinks
 import io.github.jan.supabase.gotrue.gotrue
+import io.github.jan.supabase.gotrue.handleDeeplinks
 import io.github.jan.supabase.gotrue.providers.Google
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private var errorReporter: ((String) -> Unit)? = null
+    private var pendingAuthError: String? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleAuthDeeplink(intent)
@@ -47,26 +51,38 @@ class MainActivity : ComponentActivity() {
                 val scope = rememberCoroutineScope()
 
                 LaunchedEffect(Unit) {
+                    errorReporter = { message -> errorLog = message }
+                    pendingAuthError?.let {
+                        errorLog = it
+                        pendingAuthError = null
+                    }
                     try {
                         SupabaseClientProvider.client.gotrue.sessionStatus.collect { status ->
                             authenticated = status is SessionStatus.Authenticated
                         }
                     } catch (error: Exception) {
-                        Log.e(LOG_TAG, "Unable to observe authentication state", error)
-                        errorLog = error.message ?: error::class.java.simpleName
+                        reportAuthError("Could not read login state: ${error.message ?: error::class.java.simpleName}", error)
+                    }
+                }
+
+                LaunchedEffect(Unit) {
+                    try {
+                        SupabaseClientProvider.client.gotrue.events.collect { event ->
+                            if (event is AuthEvent.OtpError) {
+                                reportAuthError("Google sign-in callback failed: ${event.error}")
+                            }
+                        }
+                    } catch (error: Exception) {
+                        reportAuthError("Could not monitor authentication errors: ${error.message ?: error::class.java.simpleName}", error)
                     }
                 }
 
                 Surface(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .testTag("app-root"),
+                    modifier = Modifier.fillMaxSize().testTag("app-root"),
                     color = MaterialTheme.colorScheme.background,
                 ) {
                     Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(28.dp),
+                        modifier = Modifier.fillMaxSize().padding(28.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
@@ -79,10 +95,7 @@ class MainActivity : ComponentActivity() {
                         Spacer(Modifier.height(36.dp))
 
                         if (authenticated) {
-                            Text(
-                                text = "Login successful",
-                                style = MaterialTheme.typography.headlineSmall,
-                            )
+                            Text("Login successful", style = MaterialTheme.typography.headlineSmall)
                         } else {
                             Button(
                                 onClick = {
@@ -93,8 +106,10 @@ class MainActivity : ComponentActivity() {
                                             try {
                                                 SupabaseClientProvider.client.gotrue.loginWith(Google)
                                             } catch (error: Exception) {
-                                                Log.e(LOG_TAG, "Google sign-in could not be started", error)
-                                                errorLog = error.message ?: error::class.java.simpleName
+                                                reportAuthError(
+                                                    "Could not start Google sign-in: ${error.message ?: error::class.java.simpleName}",
+                                                    error,
+                                                )
                                             } finally {
                                                 isStartingLogin = false
                                             }
@@ -128,17 +143,29 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onNewIntent(intent: android.content.Intent) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         handleAuthDeeplink(intent)
     }
 
-    private fun handleAuthDeeplink(callbackIntent: android.content.Intent) {
+    private fun handleAuthDeeplink(callbackIntent: Intent) {
         try {
             SupabaseClientProvider.client.handleDeeplinks(callbackIntent)
         } catch (error: Exception) {
-            Log.e(LOG_TAG, "Authentication callback failed", error)
+            reportAuthError("Authentication callback failed: ${error.message ?: error::class.java.simpleName}", error)
+        }
+    }
+
+    private fun reportAuthError(message: String, error: Throwable? = null) {
+        if (error != null) {
+            Log.e(LOG_TAG, message, error)
+        } else {
+            Log.e(LOG_TAG, message)
+        }
+        runOnUiThread {
+            val reporter = errorReporter
+            if (reporter != null) reporter(message) else pendingAuthError = message
         }
     }
 
