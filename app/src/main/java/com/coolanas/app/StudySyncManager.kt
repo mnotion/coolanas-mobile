@@ -2,6 +2,8 @@ package com.coolanas.app
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
@@ -214,6 +216,10 @@ class StudySyncManager(context: Context) {
 
     suspend fun syncPending(userId: String, scheduleRetry: Boolean = true): Boolean =
         syncMutex.withLock {
+            if (!hasValidatedNetwork()) {
+                if (scheduleRetry) StudySyncWorker.enqueue(appContext, userId)
+                return@withLock false
+            }
             try {
                 if (preferences.getBoolean(subjectsDirtyKey(userId), false)) {
                     syncSubjects(userId)
@@ -275,6 +281,14 @@ class StudySyncManager(context: Context) {
             val latest = readAnalyticsQueue(userId).filterNot { it.eventId in sentIds }
             preferences.edit().putString(queueKey(userId), encodeAnalyticsQueue(latest)).commit()
         }
+    }
+
+    private fun hasValidatedNetwork(): Boolean {
+        val connectivity = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = connectivity.activeNetwork ?: return false
+        val capabilities = connectivity.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
     private suspend fun invokeFunction(body: JsonObject): JsonObject {
