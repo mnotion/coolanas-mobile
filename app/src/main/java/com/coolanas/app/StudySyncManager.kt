@@ -228,10 +228,12 @@ class StudySyncManager(context: Context) {
         preferences.getString(themeKey(userId), "light")?.takeIf { it == "dark" } ?: "light"
 
     fun saveTheme(userId: String, dark: Boolean) {
-        preferences.edit()
-            .putString(themeKey(userId), if (dark) "dark" else "light")
-            .putBoolean(themeDirtyKey(userId), true)
-            .commit()
+        synchronized(timerCheckpointLock) {
+            preferences.edit()
+                .putString(themeKey(userId), if (dark) "dark" else "light")
+                .putBoolean(themeDirtyKey(userId), true)
+                .commit()
+        }
         StudySyncWorker.enqueue(appContext, userId)
     }
 
@@ -332,7 +334,11 @@ class StudySyncManager(context: Context) {
                             put("theme", JsonPrimitive(theme))
                         })
                     })
-                    preferences.edit().putBoolean(themeDirtyKey(userId), false).apply()
+                    synchronized(timerCheckpointLock) {
+                        if (cachedTheme(userId) == theme) {
+                            preferences.edit().putBoolean(themeDirtyKey(userId), false).apply()
+                        }
+                    }
                 }
                 if (preferences.getBoolean(subjectsDirtyKey(userId), false)) {
                     syncSubjects(userId)
