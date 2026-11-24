@@ -157,6 +157,7 @@ fun StudyDashboardScreen(
         entryVisible = false
         delay(65L)
         entryVisible = true
+        onThemeChanged(repository.cachedTheme(userId) == "dark")
         if (timer.startedAtMs != null) {
             withContext(Dispatchers.IO) { repository.checkpointTimer(userId) }
             timer = repository.timerState(userId)
@@ -183,6 +184,9 @@ fun StudyDashboardScreen(
             subjectsEditable = loadedSubjects.editable
             val cloudDarkMode = withContext(Dispatchers.IO) { repository.loadTheme(userId) }
             onThemeChanged(cloudDarkMode)
+            avatar = withContext(Dispatchers.IO) {
+                repository.loadProfileAvatar(userId, accountProfile.googleAvatarUrl)
+            }
             withContext(Dispatchers.IO) { repository.syncPending(userId) }
         }
     }
