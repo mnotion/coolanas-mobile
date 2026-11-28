@@ -93,7 +93,7 @@ private data class CoolanasFriendSearchRow(
 
 @Serializable
 private data class CoolanasDmTypingPayload(
-    @SerialName("user_id") val userId: String,
+    val userId: String,
     val typing: Boolean
 )
 
@@ -223,7 +223,7 @@ fun StudyMessagingScreen(userId: String) {
     LaunchedEffect(conversationId, userId) {
         val activeConversation = conversationId ?: return@LaunchedEffect
         messages = emptyList()
-        val channel = SupabaseClientProvider.client.realtime.channel("coolanas-mobile-dm-$activeConversation")
+        val channel = SupabaseClientProvider.client.realtime.channel("sca-dm-$activeConversation")
         activeTypingChannel = channel
         val typingFlow = channel.broadcastFlow<CoolanasDmTypingPayload>("typing")
         val insertFlow = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
