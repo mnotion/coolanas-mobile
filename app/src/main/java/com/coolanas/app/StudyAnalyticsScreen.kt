@@ -131,7 +131,6 @@ fun StudyAnalyticsScreen(
     var section by remember { mutableStateOf(AnalyticsSection.Monthly) }
     var month by remember { mutableStateOf(YearMonth.now()) }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
-    var pageDrag by remember { mutableFloatStateOf(0f) }
     val today = LocalDate.now()
     val data = addRunningSessionPreview(snapshot, timer, serverNowMillis, activeSubject)
 
@@ -218,18 +217,7 @@ fun StudyAnalyticsScreen(
                 targetState = section,
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth()
-                    .pointerInput(section) {
-                        detectHorizontalDragGestures(
-                            onDragEnd = {
-                                if (abs(pageDrag) > 90f) {
-                                    section = if (pageDrag < 0f) AnalyticsSection.Calendar else AnalyticsSection.Monthly
-                                }
-                                pageDrag = 0f
-                            },
-                            onHorizontalDrag = { _, amount -> pageDrag += amount }
-                        )
-                    },
+                    .fillMaxWidth(),
                 transitionSpec = {
                     val direction = if (targetState == AnalyticsSection.Calendar) 1 else -1
                     (slideInHorizontally(
@@ -284,8 +272,21 @@ private fun AnalyticsSegmentedControl(
     onSelect: (AnalyticsSection) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var swipeDistance by remember(section) { mutableFloatStateOf(0f) }
     Surface(
-        modifier = modifier.height(54.dp),
+        modifier = modifier
+            .height(54.dp)
+            .pointerInput(section) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        if (abs(swipeDistance) > 55f) {
+                            onSelect(if (swipeDistance < 0f) AnalyticsSection.Calendar else AnalyticsSection.Monthly)
+                        }
+                        swipeDistance = 0f
+                    },
+                    onHorizontalDrag = { _, amount -> swipeDistance += amount }
+                )
+            },
         shape = RoundedCornerShape(28.dp),
         color = Color(0xB82A2D33),
         border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.11f)),
@@ -330,7 +331,7 @@ private fun MonthlyAnalytics(
     val chartDays = (179 downTo 0).map { today.minusDays(it.toLong()) }
     val chartValues = chartDays.map { snapshot.daily[it.toString()] ?: 0L }
     val total = values.sum()
-    val studiedDays = values.count { it >= 60_000L }
+    val studiedDays = values.count { it > 0L }
     val elapsedDays = if (month == YearMonth.from(today)) today.dayOfMonth else month.lengthOfMonth()
     val dailyAverage = if (elapsedDays > 0) total / elapsedDays else 0L
     val bestDay = values.maxOrNull() ?: 0L
