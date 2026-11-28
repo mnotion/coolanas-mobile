@@ -43,6 +43,8 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.supabase.auth)
     implementation(libs.supabase.functions)
+    implementation(libs.supabase.postgrest)
+    implementation(libs.supabase.realtime)
     implementation(libs.androidx.work.runtime)
     implementation(libs.ktor.client.android)
     implementation(libs.androidx.compose.ui)
