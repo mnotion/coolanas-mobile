@@ -1111,12 +1111,26 @@ private fun CoolanasBottomNavigation(
                 Triple(DashboardPage.Messages, "Messages", "✉")
             ).forEach { (page, label, symbol) ->
                 val selected = activePage == page
+                val selectionColour by animateColorAsState(
+                    targetValue = if (selected) Color(0xFF514568) else Color.Transparent,
+                    animationSpec = tween(480, easing = FastOutSlowInEasing),
+                    label = "navigation-selection-$label"
+                )
+                val selectionScale by animateFloatAsState(
+                    targetValue = if (selected) 1f else 0.965f,
+                    animationSpec = tween(480, easing = FastOutSlowInEasing),
+                    label = "navigation-scale-$label"
+                )
                 Column(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = selectionScale
+                            scaleY = selectionScale
+                        }
                         .clip(RoundedCornerShape(25.dp))
-                        .background(if (selected) Color(0xFF514568) else Color.Transparent)
+                        .background(selectionColour)
                         .noRippleClickable { onSelect(page) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
