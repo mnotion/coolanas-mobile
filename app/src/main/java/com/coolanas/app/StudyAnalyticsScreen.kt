@@ -37,6 +37,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.time.DayOfWeek
+import java.time.Instant
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -44,12 +47,56 @@ import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 import kotlin.math.max
 
+
+/**
+ * The website's monthly report temporarily includes the still-running interval.
+ * This is presentation-only: the live session is not uploaded to analytics until
+ * the account stopwatch is paused or reset.
+ */
+private fun addRunningSessionPreview(
+    snapshot: StudyAnalyticsSnapshot,
+    timer: StudyTimerState,
+    serverNowMillis: Long,
+    subject: String
+): StudyAnalyticsSnapshot {
+    val start = timer.startedAtMs ?: return snapshot
+    if (serverNowMillis <= start) return snapshot
+    val daily = snapshot.daily.toMutableMap()
+    val subjects = snapshot.dailySubjects.mapValues { it.value.toMutableMap() }.toMutableMap()
+    val hours = snapshot.dailyHours.mapValues { it.value.toMutableMap() }.toMutableMap()
+    val zone = ZoneId.systemDefault()
+    var cursor = start
+    while (cursor < serverNowMillis) {
+        val local = Instant.ofEpochMilli(cursor).atZone(zone)
+        val nextHour = local.truncatedTo(ChronoUnit.HOURS).plusHours(1).toInstant().toEpochMilli()
+        val end = minOf(serverNowMillis, nextHour.coerceAtLeast(cursor + 1L))
+        val duration = end - cursor
+        val date = local.toLocalDate().toString()
+        val hour = local.hour
+        daily[date] = (daily[date] ?: 0L) + duration
+        val subjectDay = subjects.getOrPut(date) { mutableMapOf() }
+        subjectDay[subject.ifBlank { "Unassigned" }] =
+            (subjectDay[subject.ifBlank { "Unassigned" }] ?: 0L) + duration
+        val hourDay = hours.getOrPut(date) { mutableMapOf() }
+        hourDay[hour] = (hourDay[hour] ?: 0L) + duration
+        cursor = end
+    }
+    return snapshot.copy(
+        daily = daily,
+        dailySubjects = subjects.mapValues { it.value.toMap() },
+        dailyHours = hours.mapValues { it.value.toMap() }
+    )
+}
+
 private enum class AnalyticsSection { Monthly, Calendar }
 
 @Composable
 fun StudyAnalyticsScreen(
     snapshot: StudyAnalyticsSnapshot,
     subjects: List<StudySubject>,
+    timer: StudyTimerState,
+    serverNowMillis: Long,
+    activeSubject: String,
     darkMode: Boolean,
     loading: Boolean,
     error: String?,
@@ -60,17 +107,23 @@ fun StudyAnalyticsScreen(
     var month by remember { mutableStateOf(YearMonth.now()) }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     val today = LocalDate.now()
+    val displaySnapshot = addRunningSessionPreview(
+        snapshot = snapshot,
+        timer = timer,
+        serverNowMillis = serverNowMillis,
+        subject = activeSubject
+    )
     val monthKey = month.toString()
     val monthValues = (1..month.lengthOfMonth()).map { day ->
         val key = monthKey + "-" + day.toString().padStart(2, '0')
-        max(0L, snapshot.daily[key] ?: 0L)
+        max(0L, displaySnapshot.daily[key] ?: 0L)
     }
     val monthTotal = monthValues.sum()
     val daysStudied = monthValues.count { it > 0L }
     val average = if (month.lengthOfMonth() > 0) monthTotal / month.lengthOfMonth() else 0L
     val bestDay = monthValues.maxOrNull() ?: 0L
     val subjectTotals = linkedMapOf<String, Long>()
-    snapshot.dailySubjects.forEach { (date, entries) ->
+    displaySnapshot.dailySubjects.forEach { (date, entries) ->
         if (date.startsWith("$monthKey-")) {
             entries.forEach { (name, duration) ->
                 subjectTotals[name] = (subjectTotals[name] ?: 0L) + duration
@@ -79,12 +132,12 @@ fun StudyAnalyticsScreen(
     }
     val maxSubject = subjectTotals.values.maxOrNull()?.coerceAtLeast(1L) ?: 1L
     val dailyKey = selectedDate.toString()
-    val selectedTotal = snapshot.daily[dailyKey] ?: 0L
-    val selectedSubjects = snapshot.dailySubjects[dailyKey].orEmpty()
+    val selectedTotal = displaySnapshot.daily[dailyKey] ?: 0L
+    val selectedSubjects = displaySnapshot.dailySubjects[dailyKey].orEmpty()
         .filterValues { it > 0L }
         .toList()
         .sortedByDescending { it.second }
-    val selectedHours = snapshot.dailyHours[dailyKey].orEmpty()
+    val selectedHours = displaySnapshot.dailyHours[dailyKey].orEmpty()
 
     Column(
         modifier = Modifier
@@ -182,7 +235,7 @@ fun StudyAnalyticsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp
                 )
-                YearHeatmap(snapshot.daily, today)
+                YearHeatmap(displaySnapshot.daily, today)
             }
             AnalyticsCard {
                 Text("Subject breakdown", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp)
@@ -232,7 +285,7 @@ fun StudyAnalyticsScreen(
                             val day = week * 7 + weekday - offset + 1
                             if (day in 1..month.lengthOfMonth()) {
                                 val date = month.atDay(day)
-                                val amount = snapshot.daily[date.toString()] ?: 0L
+                                val amount = displaySnapshot.daily[date.toString()] ?: 0L
                                 val isSelected = date == selectedDate
                                 val intensity = when {
                                     amount <= 0L -> MaterialTheme.colorScheme.surfaceVariant
