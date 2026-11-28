@@ -1,7 +1,6 @@
 package com.coolanas.app
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.BasicMarquee
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -55,6 +54,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -66,6 +67,8 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import java.time.Instant
 import java.util.Locale
+
+private val GuildJoinedBlue = Color(0xFF2879DF)
 
 @Composable
 internal fun GuildJoinedHomeContent(
@@ -651,7 +654,7 @@ private fun GuildMobileComposer(
                 fontSize = 13.sp,
                 lineHeight = 19.sp
             ),
-            cursorBrush = SolidColor(GuildBlue),
+            cursorBrush = SolidColor(GuildJoinedBlue),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
             keyboardActions = KeyboardActions(onSend = { if (value.isNotBlank() && !sending) onSend() }),
             decorationBox = { innerTextField ->
