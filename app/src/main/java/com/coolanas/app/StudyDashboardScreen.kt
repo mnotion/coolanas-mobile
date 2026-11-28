@@ -289,16 +289,19 @@ fun StudyDashboardScreen(
 
     LaunchedEffect(showAnalytics, userId, syncVersion, analyticsRefreshVersion) {
         if (showAnalytics) {
-            analyticsLoading = true
-            analyticsError = null
-            try {
-                analyticsSnapshot = withContext(Dispatchers.IO) {
-                    repository.loadAnalytics(userId)
+            while (true) {
+                analyticsLoading = analyticsSnapshot.daily.isEmpty()
+                analyticsError = null
+                try {
+                    analyticsSnapshot = withContext(Dispatchers.IO) {
+                        repository.loadAnalytics(userId)
+                    }
+                } catch (error: Exception) {
+                    analyticsError = error.message ?: "Could not load your analytics."
+                } finally {
+                    analyticsLoading = false
                 }
-            } catch (error: Exception) {
-                analyticsError = error.message ?: "Could not load your analytics."
-            } finally {
-                analyticsLoading = false
+                delay(15_000L)
             }
         }
     }
