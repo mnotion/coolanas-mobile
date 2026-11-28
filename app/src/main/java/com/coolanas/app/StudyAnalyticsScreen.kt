@@ -186,6 +186,7 @@ fun StudyAnalyticsScreen(
                 section = AnalyticsSection.Monthly
             }
             AnalyticsTab("Calendar", section == AnalyticsSection.Calendar, Modifier.weight(1f)) {
+                month = YearMonth.from(selectedDate)
                 section = AnalyticsSection.Calendar
             }
         }
