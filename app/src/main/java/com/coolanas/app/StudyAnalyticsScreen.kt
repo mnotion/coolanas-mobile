@@ -209,7 +209,10 @@ fun StudyAnalyticsScreen(
             ) {
                 Text(month.format(DateTimeFormatter.ofPattern("MMMM yyyy")), color = MaterialTheme.colorScheme.onBackground, fontSize = 18.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = { month = month.minusMonths(1) }) { Text("‹") }
+                    TextButton(onClick = {
+                        month = month.minusMonths(1)
+                        selectedDate = month.atDay(1)
+                    }) { Text("‹") }
                     TextButton(
                         onClick = { month = month.plusMonths(1) },
                         enabled = month < YearMonth.from(today)
