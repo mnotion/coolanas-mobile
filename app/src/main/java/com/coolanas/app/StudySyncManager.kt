@@ -705,7 +705,6 @@ class StudySyncWorker(
             val currentUserId = authenticated.session.user?.id ?: return Result.failure()
             if (currentUserId != expectedUserId) return Result.failure()
             val repository = StudySyncManager(applicationContext)
-            repository.checkpointTimer(currentUserId)
             val synced = repository.syncPending(currentUserId, scheduleRetry = false)
             if (synced) Result.success() else Result.retry()
         } catch (_: Exception) {
