@@ -289,8 +289,8 @@ private fun AnalyticsSegmentedControl(
                 )
             },
         shape = RoundedCornerShape(28.dp),
-        color = Color(0xB82A2D33),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.11f)),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         tonalElevation = 8.dp
     ) {
         Row(
@@ -302,12 +302,12 @@ private fun AnalyticsSegmentedControl(
                 Surface(
                     modifier = Modifier.weight(1f).fillMaxSize().noRippleClickable { onSelect(item) },
                     shape = RoundedCornerShape(23.dp),
-                    color = if (selected) Color(0xFF4B405E) else Color.Transparent
+                    color = if (selected) Color(0xFFDCE9FF) else Color.Transparent
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Text(
                             if (item == AnalyticsSection.Monthly) "Monthly" else "Calendar",
-                            color = if (selected) Color(0xFFF1E8FF) else Color(0xFFB8BBC4),
+                            color = if (selected) Color(0xFF246CCB) else MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 14.sp,
                             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
                         )
@@ -416,7 +416,7 @@ private fun MonthlyAnalytics(
                                 .fillMaxWidth(0.58f)
                                 .height((132f * animated).coerceAtLeast(2f).dp)
                                 .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
-                                .background(if (amount > 0L) Color(0xFF9B82C7) else MaterialTheme.colorScheme.surfaceVariant)
+                                .background(if (amount > 0L) Color(0xFF347FDF) else MaterialTheme.colorScheme.surfaceVariant)
                         )
                         Spacer(Modifier.height(7.dp))
                         Text(
@@ -620,10 +620,10 @@ private fun CalendarGrid(
                         }
                         val background = when (level) {
                             0 -> Color.Transparent
-                            1 -> Color(0xFF2E473D)
-                            2 -> Color(0xFF316C52)
-                            3 -> Color(0xFF3F9469)
-                            else -> Color(0xFF62B982)
+                            1 -> Color(0xFFE6F3EA)
+                            2 -> Color(0xFFD1EAD9)
+                            3 -> Color(0xFFB2DDC1)
+                            else -> Color(0xFF8CCBA0)
                         }
                         Column(
                             modifier = Modifier
@@ -635,21 +635,21 @@ private fun CalendarGrid(
                                     alpha = cellScale
                                 }
                                 .clip(RoundedCornerShape(11.dp))
-                                .background(if (selected) Color(0xFF49405B) else Color.Transparent)
+                                .background(if (selected) Color(0xFFDCE9FF) else background)
                                 .noRippleClickable { onDateSelected(date) }
                                 .padding(top = 7.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
                                 date.dayOfMonth.toString(),
-                                color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                color = if (selected) Color(0xFF246CCB) else MaterialTheme.colorScheme.onSurface,
                                 fontSize = 13.sp,
                                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
                             )
                             if (amount >= 60_000L) {
                                 Text(
                                     formatHhMm(amount),
-                                    color = if (selected) Color(0xFFE8DFFF) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = if (selected) Color(0xFF315F9B) else MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontSize = 8.sp,
                                     maxLines = 1
                                 )
@@ -686,11 +686,11 @@ private fun YearHeatmap(daily: Map<String, Long>, today: LocalDate) {
                     if (date <= today) {
                         val amount = daily[date.toString()] ?: 0L
                         val shade = when {
-                            amount <= 0L -> Color(0xFF30343B)
-                            amount <= maximum / 4L -> Color(0xFF355243)
-                            amount <= maximum / 2L -> Color(0xFF477E60)
-                            amount <= maximum * 3L / 4L -> Color(0xFF67A979)
-                            else -> Color(0xFF8CCB98)
+                            amount <= 0L -> Color(0xFFE8EDF3)
+                            amount <= maximum / 4L -> Color(0xFFD1EAD9)
+                            amount <= maximum / 2L -> Color(0xFFB2DDC1)
+                            amount <= maximum * 3L / 4L -> Color(0xFF82C99F)
+                            else -> Color(0xFF50A978)
                         }
                         Box(Modifier.size(11.dp).clip(RoundedCornerShape(3.dp)).background(shade))
                     } else {
@@ -800,7 +800,7 @@ private fun HourlyActivity(hours: Map<Int, Long>) {
                     .fillMaxWidth()
                     .height((98f * animated).dp)
                     .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
-                    .background(if (amount > 0L) Color(0xFF9B82C7) else MaterialTheme.colorScheme.surfaceVariant)
+                    .background(if (amount > 0L) Color(0xFF347FDF) else MaterialTheme.colorScheme.surfaceVariant)
             )
         }
     }
@@ -816,8 +816,8 @@ private fun AnalyticsCard(content: @Composable ColumnScope.() -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        color = Color(0xFF22252B),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.035f)),
+        color = MaterialTheme.colorScheme.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)),
         tonalElevation = 2.dp
     ) {
         Column(
@@ -834,8 +834,8 @@ private fun MetricCell(label: String, value: String, modifier: Modifier) {
         modifier = modifier.padding(horizontal = 8.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
-        Text(label, color = Color(0xFFAEB3BE), fontSize = 11.sp)
-        Text(value, color = Color(0xFFF4F4F6), fontSize = 21.sp, fontWeight = FontWeight.Medium)
+        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+        Text(value, color = MaterialTheme.colorScheme.onSurface, fontSize = 21.sp, fontWeight = FontWeight.Medium)
     }
 }
 
