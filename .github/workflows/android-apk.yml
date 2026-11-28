@@ -27,7 +27,15 @@ jobs:
         run: chmod +x ./gradlew
       - name: Build debug APK
         run: ./gradlew --no-daemon :app:assembleDebug
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: coolanas-android-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
       - name: Run emulator launch smoke test
+        timeout-minutes: 15
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -37,10 +45,3 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-audio -no-boot-anim
           script: ./gradlew --no-daemon :app:connectedDebugAndroidTest
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: coolanas-android-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 14
