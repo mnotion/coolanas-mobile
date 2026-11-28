@@ -1,3 +1,5 @@
 <resources>
-    <style name="Theme.Coolanas" parent="@android:style/Theme.Material.NoActionBar" />
+    <style name="Theme.Coolanas" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:forceDarkAllowed">false</item>
+    </style>
 </resources>

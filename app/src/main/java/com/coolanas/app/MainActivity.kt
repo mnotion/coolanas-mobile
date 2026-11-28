@@ -87,7 +87,7 @@ class MainActivity : ComponentActivity() {
                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
             }
-            CoolanasTheme(darkMode = true) {
+            CoolanasTheme() {
                 var authenticatedUserId by remember { mutableStateOf<String?>(null) }
                 var isStartingLogin by remember { mutableStateOf(false) }
                 var errorLog by remember { mutableStateOf<String?>(null) }
