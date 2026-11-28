@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -69,6 +70,7 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sin
+import kotlinx.coroutines.delay
 
 private enum class AnalyticsSection { Monthly, Calendar }
 
@@ -598,7 +600,7 @@ private fun CalendarGrid(
                                 .weight(1f)
                                 .height(58.dp)
                                 .clip(RoundedCornerShape(11.dp))
-                                .background(if (selected) Color(0xFF49405B) else background.copy(alpha = if (level == 0) 0f else 0.4f))
+                                .background(if (selected) Color(0xFF49405B) else Color.Transparent)
                                 .noRippleClickable { onDateSelected(date) }
                                 .padding(top = 7.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
@@ -635,6 +637,7 @@ private fun YearHeatmap(daily: Map<String, Long>, today: LocalDate) {
     val maximum = daily.filterKeys { it.startsWith(yearPrefix) }.values.maxOrNull()?.coerceAtLeast(1L) ?: 1L
     val scrollState = rememberScrollState()
     LaunchedEffect(today, daily.size) {
+        delay(100L)
         scrollState.scrollTo(scrollState.maxValue)
     }
     Row(
