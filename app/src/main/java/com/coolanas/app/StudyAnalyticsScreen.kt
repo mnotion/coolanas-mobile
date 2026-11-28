@@ -407,7 +407,7 @@ private fun MonthlyAnalytics(
                         label = "daily-bar-$date"
                     )
                     Column(
-                        modifier = Modifier.width(34.dp).fillMaxSize(),
+                        modifier = Modifier.width(42.dp).fillMaxSize(),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Bottom
                     ) {
