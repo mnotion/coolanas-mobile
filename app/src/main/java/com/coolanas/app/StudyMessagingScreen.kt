@@ -218,8 +218,8 @@ fun StudyMessagingScreen(userId: String) {
                 messages = latest
                 markConversationRead(activeConversation, userId)
             }
-        } catch (_: kotlinx.coroutines.CancellationException) {
-            throw
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (exception: Exception) {
             error = exception.message ?: "Live messages could not refresh."
         } finally {
