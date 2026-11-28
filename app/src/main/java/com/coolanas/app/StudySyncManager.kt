@@ -155,8 +155,6 @@ class StudySyncManager(context: Context) {
     private fun initializedKey(userId: String) = key(userId, "subjects_initialized")
     private fun subjectsDirtyKey(userId: String) = key(userId, "subjects_dirty")
     private fun queueKey(userId: String) = key(userId, "analytics_queue")
-    private fun themeKey(userId: String) = key(userId, "account_theme")
-    private fun themeDirtyKey(userId: String) = key(userId, "account_theme_dirty")
     private fun terminalElapsedKey(userId: String) = key(userId, "account_stopwatch_elapsed_ms")
     private fun terminalStartedKey(userId: String) = key(userId, "account_stopwatch_started_at_ms")
     private fun terminalClockOffsetKey(userId: String) = key(userId, "account_stopwatch_clock_offset_ms")
@@ -217,44 +215,6 @@ class StudySyncManager(context: Context) {
         } catch (_: Exception) {
             val latestCache = cachedSubjects(userId)
             StudySubjectsLoad(latestCache ?: defaultSubjects, true)
-        }
-    }
-
-    fun cachedTheme(userId: String): String =
-        preferences.getString(themeKey(userId), "light")?.takeIf { it == "dark" } ?: "light"
-
-    fun saveTheme(userId: String, dark: Boolean) {
-        synchronized(accountStateLock) {
-            preferences.edit()
-                .putString(themeKey(userId), if (dark) "dark" else "light")
-                .putBoolean(themeDirtyKey(userId), true)
-                .commit()
-        }
-        StudySyncWorker.enqueue(appContext, userId)
-    }
-
-    suspend fun loadTheme(userId: String): Boolean = withContext(Dispatchers.IO) {
-        if (preferences.getBoolean(themeDirtyKey(userId), false)) {
-            return@withContext cachedTheme(userId) == "dark"
-        }
-        try {
-            val result = invokeFunction(buildJsonObject {
-                put("action", JsonPrimitive("settings_get"))
-            })
-            val settings = result["settings"] as? JsonObject
-            val cloudTheme = settings?.get("theme")?.jsonPrimitive?.contentOrNull
-                ?.takeIf { it == "dark" || it == "light" }
-            if (cloudTheme != null) {
-                preferences.edit()
-                    .putString(themeKey(userId), cloudTheme)
-                    .putBoolean(themeDirtyKey(userId), false)
-                    .apply()
-                cloudTheme == "dark"
-            } else {
-                cachedTheme(userId) == "dark"
-            }
-        } catch (_: Exception) {
-            cachedTheme(userId) == "dark"
         }
     }
 
@@ -492,20 +452,6 @@ class StudySyncManager(context: Context) {
                 return@withLock false
             }
             try {
-                if (preferences.getBoolean(themeDirtyKey(userId), false)) {
-                    val theme = cachedTheme(userId)
-                    invokeFunction(buildJsonObject {
-                        put("action", JsonPrimitive("settings_update"))
-                        put("settings", buildJsonObject {
-                            put("theme", JsonPrimitive(theme))
-                        })
-                    })
-                    synchronized(accountStateLock) {
-                        if (cachedTheme(userId) == theme) {
-                            preferences.edit().putBoolean(themeDirtyKey(userId), false).apply()
-                        }
-                    }
-                }
                 if (preferences.getBoolean(subjectsDirtyKey(userId), false)) {
                     syncSubjects(userId)
                 }
