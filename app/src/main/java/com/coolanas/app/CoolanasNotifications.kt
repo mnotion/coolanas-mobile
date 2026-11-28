@@ -49,6 +49,39 @@ object CoolanasNotifications {
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
     }
 
+    fun showBackgroundTimer(context: Context, elapsedMs: Long, subject: String) {
+        createChannels(context)
+        if (!notificationsAllowed(context)) return
+        val openApp = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val pending = PendingIntent.getActivity(
+            context,
+            TIMER_NOTIFICATION_ID,
+            openApp,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = Notification.Builder(context, TIMER_CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_timer)
+            .setContentTitle("Coolanas · Study timer")
+            .setContentText(if (subject.isBlank()) "Studying" else "Studying · $subject")
+            .setWhen(System.currentTimeMillis() - elapsedMs.coerceAtLeast(0L))
+            .setUsesChronometer(true)
+            .setShowWhen(true)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(pending)
+            .setCategory("stopwatch")
+            .setColor(0xFF9B82C7.toInt())
+            .build()
+        context.getSystemService(NotificationManager::class.java)
+            .notify(TIMER_NOTIFICATION_ID, notification)
+    }
+
+    fun clearTimer(context: Context) {
+        context.getSystemService(NotificationManager::class.java).cancel(TIMER_NOTIFICATION_ID)
+    }
+
     fun notifyMessage(context: Context, senderName: String, body: String, senderId: String) {
         createChannels(context)
         if (!notificationsAllowed(context)) return
