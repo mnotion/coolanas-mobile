@@ -1,5 +1,8 @@
 package com.coolanas.app
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -36,6 +39,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -63,6 +69,9 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import java.io.ByteArrayOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.time.Instant
 import java.time.LocalTime
 import java.time.ZoneId
@@ -123,18 +132,73 @@ private data class CoolanasDmRow(
         }
 }
 
+private object MessagingPalette {
+    val background = Color(0xFFF4F6FB)
+    val surface = Color.White
+    val chatSurface = Color(0xFFF8FAFE)
+    val field = Color(0xFFF1F4F9)
+    val outline = Color(0xFFD9E0EA)
+    val text = Color(0xFF172033)
+    val secondary = Color(0xFF68758A)
+    val blue = Color(0xFF347FDF)
+    val blueSoft = Color(0xFFDCE9FF)
+    val bluePale = Color(0xFFE8F0FC)
+    val incomingBubble = Color(0xFFE9EDF3)
+    val divider = Color(0xFFE3E8F0)
+    val avatar = Color(0xFFE3ECF9)
+    val avatarText = Color(0xFF315F9B)
+    val error = Color(0xFFB42318)
+}
+
 @Composable
 private fun messagingFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = Color(0xFFF3F2F7),
-    unfocusedTextColor = Color(0xFFF3F2F7),
-    focusedContainerColor = Color(0xFF1D2026),
-    unfocusedContainerColor = Color(0xFF1D2026),
-    focusedBorderColor = Color(0xFF9B82C7),
-    unfocusedBorderColor = Color(0xFF454952),
-    focusedPlaceholderColor = Color(0xFF969BA6),
-    unfocusedPlaceholderColor = Color(0xFF969BA6),
-    cursorColor = Color(0xFFBDA9E0)
+    focusedTextColor = MessagingPalette.text,
+    unfocusedTextColor = MessagingPalette.text,
+    focusedContainerColor = MessagingPalette.surface,
+    unfocusedContainerColor = MessagingPalette.field,
+    focusedBorderColor = MessagingPalette.blue,
+    unfocusedBorderColor = MessagingPalette.outline,
+    focusedPlaceholderColor = MessagingPalette.secondary,
+    unfocusedPlaceholderColor = MessagingPalette.secondary,
+    cursorColor = MessagingPalette.blue
 )
+
+private fun downloadMessagingAvatar(imageUrl: String?): Bitmap? {
+    if (imageUrl.isNullOrBlank()) return null
+    var connection: HttpURLConnection? = null
+    return try {
+        val parsed = URL(imageUrl)
+        if (parsed.protocol != "https") return null
+        connection = parsed.openConnection() as? HttpURLConnection ?: return null
+        connection.connectTimeout = 5_000
+        connection.readTimeout = 5_000
+        connection.instanceFollowRedirects = true
+        connection.connect()
+        if (connection.responseCode !in 200..299) return null
+        val output = ByteArrayOutputStream()
+        connection.inputStream.use { input ->
+            val buffer = ByteArray(4_096)
+            var total = 0
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                total += count
+                if (total > 3 * 1024 * 1024) return null
+                output.write(buffer, 0, count)
+            }
+        }
+        val bytes = output.toByteArray()
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        val sample = (maxOf(bounds.outWidth, bounds.outHeight) / 256).coerceAtLeast(1)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+    } catch (_: Exception) {
+        null
+    } finally {
+        connection?.disconnect()
+    }
+}
 
 @Composable
 fun StudyMessagingScreen(userId: String) {
@@ -154,6 +218,7 @@ fun StudyMessagingScreen(userId: String) {
     var requestsVisible by remember(userId) { mutableStateOf(false) }
     var friendListVersion by remember(userId) { mutableStateOf(0) }
     var unreadCounts by remember(userId) { mutableStateOf<Map<String, Int>>(emptyMap()) }
+    var friendAvatars by remember(userId) { mutableStateOf<Map<String, Bitmap>>(emptyMap()) }
     var activeTypingChannel by remember(userId) { mutableStateOf<RealtimeChannel?>(null) }
     var remoteTyping by remember(userId) { mutableStateOf(false) }
     var typingHeartbeat by remember(userId) { mutableStateOf<Job?>(null) }
@@ -217,6 +282,20 @@ fun StudyMessagingScreen(userId: String) {
         while (true) {
             delay(5_000L)
             runCatching { refreshUnreadCounts() }
+        }
+    }
+
+    LaunchedEffect(friends, searchResults) {
+        val knownIds = friendAvatars.keys
+        val sources = (friends.map { it.friendId to it.googleAvatar } +
+            searchResults.map { it.userId to it.googleAvatar })
+            .filter { it.first !in knownIds && !it.second.isNullOrBlank() }
+            .distinctBy { it.first }
+        if (sources.isNotEmpty()) {
+            val downloaded = withContext(Dispatchers.IO) {
+                sources.mapNotNull { (id, url) -> downloadMessagingAvatar(url)?.let { id to it } }.toMap()
+            }
+            friendAvatars = friendAvatars + downloaded
         }
     }
 
@@ -333,7 +412,9 @@ fun StudyMessagingScreen(userId: String) {
     val outgoingRequests = requests.filter { it.direction == "outgoing" }
     var addFriendMode by remember(userId) { mutableStateOf(false) }
     var friendTab by remember(userId) { mutableStateOf("search") }
+    var conversationSearchVisible by remember(userId) { mutableStateOf(false) }
 
+    Box(Modifier.fillMaxSize().background(MessagingPalette.background)) {
     Column(
         modifier = Modifier.fillMaxSize().padding(start = 18.dp, top = 10.dp, end = 18.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -353,26 +434,37 @@ fun StudyMessagingScreen(userId: String) {
                     remoteTyping = false
                     messages = emptyList()
                     draft = ""
-                }, shape = CircleShape, color = Color(0xFF2D3039)) {
+                }, shape = CircleShape, color = MessagingPalette.bluePale) {
                     Box(contentAlignment = Alignment.Center) {
-                        Text("‹", color = Color(0xFFBDA9E0), fontSize = 30.sp, lineHeight = 30.sp)
+                        Text("‹", color = MessagingPalette.blue, fontSize = 30.sp, lineHeight = 30.sp)
+                    }
+                }
+                Surface(Modifier.size(42.dp), shape = CircleShape, color = MessagingPalette.avatar) {
+                    val avatar = selectedFriend?.let { friendAvatars[it.friendId] }
+                    if (avatar != null) {
+                        Image(bitmap = avatar.asImageBitmap(), contentDescription = "${selectedFriend?.username} profile picture", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(CircleShape))
+                    } else {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(selectedFriend?.username?.take(1)?.uppercase().orEmpty(), color = MessagingPalette.avatarText, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
                 Column(Modifier.weight(1f)) {
-                    Text(selectedFriend?.username.orEmpty(), color = MaterialTheme.colorScheme.onBackground, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Text(if (remoteTyping) "Typing…" else "Coolanas friend", color = if (remoteTyping) Color(0xFF2F80E7) else MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                    Text(selectedFriend?.username.orEmpty(), color = MessagingPalette.text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text(if (remoteTyping) "Typing…" else "Coolanas friend", color = if (remoteTyping) MessagingPalette.blue else MessagingPalette.secondary, fontSize = 12.sp)
                 }
-                Text("ⓘ", color = Color(0xFF969BA6), fontSize = 22.sp)
+                Text("ⓘ", color = MessagingPalette.secondary, fontSize = 22.sp)
             }
 
             if (conversationOpening || conversationId == null) {
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text(if (conversationOpening) "Opening conversation…" else "Could not open conversation. Go back and try again.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                    Text(if (conversationOpening) "Opening conversation…" else "Could not open conversation. Go back and try again.", color = MessagingPalette.secondary, textAlign = TextAlign.Center)
                 }
             } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f).fillMaxWidth()
-                        .padding(horizontal = 2.dp, vertical = 8.dp),
+                        .background(MessagingPalette.chatSurface, RoundedCornerShape(22.dp))
+                        .padding(horizontal = 12.dp, vertical = 14.dp),
                     state = messageListState,
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -386,17 +478,17 @@ fun StudyMessagingScreen(userId: String) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start, verticalAlignment = Alignment.Bottom) {
                             Column(
                                 modifier = Modifier.fillMaxWidth(0.76f).background(
-                                    if (mine) Color(0xFF3D3552) else Color(0xFF292D35),
+                                    if (mine) MessagingPalette.blueSoft else MessagingPalette.incomingBubble,
                                     RoundedCornerShape(topStart = 17.dp, topEnd = 17.dp, bottomEnd = if (mine) 5.dp else 17.dp, bottomStart = if (mine) 17.dp else 5.dp)
                                 ).padding(horizontal = 14.dp, vertical = 11.dp)
                             ) {
-                                Text(message.messageText(), color = Color(0xFFF2F1F6), fontSize = 15.sp, lineHeight = 21.sp)
+                                Text(message.messageText(), color = MessagingPalette.text, fontSize = 15.sp, lineHeight = 21.sp)
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                                     val time = runCatching { Instant.parse(message.createdAt).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm")) }.getOrDefault("")
-                                    Text(time, color = Color(0xFFADB2BE), fontSize = 10.sp)
+                                    Text(time, color = MessagingPalette.secondary, fontSize = 10.sp)
                                     if (mine) {
                                         Spacer(Modifier.width(4.dp))
-                                        Text(if (message.readAt == null) "✓" else "✓✓", color = Color(0xFFC5B2E8), fontSize = 11.sp)
+                                        Text(if (message.readAt == null) "✓" else "✓✓", color = MessagingPalette.blue, fontSize = 12.sp)
                                     }
                                 }
                             }
@@ -404,8 +496,8 @@ fun StudyMessagingScreen(userId: String) {
                     }
                     if (remoteTyping) item {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-                            Surface(shape = RoundedCornerShape(18.dp), color = Color(0xFF292D35)) {
-                                Text("•••", Modifier.padding(horizontal = 14.dp, vertical = 8.dp), color = Color(0xFFBDA9E0), fontSize = 14.sp)
+                            Surface(shape = RoundedCornerShape(18.dp), color = MessagingPalette.incomingBubble) {
+                                Text("•••", Modifier.padding(horizontal = 14.dp, vertical = 8.dp), color = MessagingPalette.secondary, fontSize = 14.sp)
                             }
                         }
                     }
@@ -467,26 +559,26 @@ fun StudyMessagingScreen(userId: String) {
                                 } finally { sending = false }
                             }
                         }
-                    }, shape = CircleShape, color = if (draft.isNotBlank() && !sending) Color(0xFF9B82C7) else Color(0xFF3A3E47)) {
+                    }, shape = CircleShape, color = if (draft.isNotBlank() && !sending) MessagingPalette.blue else Color(0xFFB7C2D1)) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("➤", color = Color.White, fontSize = 21.sp) }
                     }
                 }
             }
         } else if (addFriendMode) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("‹", modifier = Modifier.noRippleClickable { addFriendMode = false }.padding(end = 12.dp), color = Color(0xFF347FDF), fontSize = 30.sp)
-                Text("Add friend", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onBackground, fontSize = 23.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Text("‹", modifier = Modifier.noRippleClickable { addFriendMode = false }.padding(end = 12.dp), color = MessagingPalette.blue, fontSize = 30.sp)
+                Text("Add friend", modifier = Modifier.weight(1f), color = MessagingPalette.text, fontSize = 23.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 Spacer(Modifier.width(30.dp))
             }
-            Row(Modifier.fillMaxWidth().background(Color(0xFF24262D), RoundedCornerShape(18.dp)).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.fillMaxWidth().background(Color(0xFFE9EEF6), RoundedCornerShape(18.dp)).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 listOf("search" to "Search", "requests" to "Requests", "pending" to "Pending").forEach { (tab, label) ->
                     Surface(Modifier.weight(1f).noRippleClickable {
                         friendTab = tab
                         if (tab != "search") scope.launch { runCatching { loadRequests() } }
-                    }, shape = RoundedCornerShape(14.dp), color = if (friendTab == tab) Color(0xFF3D3552) else Color.Transparent) {
+                    }, shape = RoundedCornerShape(14.dp), color = if (friendTab == tab) MessagingPalette.blueSoft else Color.Transparent) {
                         Box(Modifier.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
                             val tabLabel = if (tab == "requests" && incomingRequests.isNotEmpty()) "$label ${incomingRequests.size}" else label
-                            Text(tabLabel, color = if (friendTab == tab) Color(0xFFE1D5F3) else Color(0xFFADB2BE), fontSize = 12.sp, fontWeight = if (friendTab == tab) FontWeight.SemiBold else FontWeight.Normal)
+                            Text(tabLabel, color = if (friendTab == tab) MessagingPalette.blue else MessagingPalette.secondary, fontSize = 12.sp, fontWeight = if (friendTab == tab) FontWeight.SemiBold else FontWeight.Normal)
                         }
                     }
                 }
@@ -494,16 +586,21 @@ fun StudyMessagingScreen(userId: String) {
             if (friendTab == "search") {
                 OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp), singleLine = true, placeholder = { Text("Search by username…") }, shape = RoundedCornerShape(22.dp), colors = messagingFieldColors())
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    if (search.trim().length < 2) item { Text("Enter at least 2 characters to find people.", Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) }
-                    else if (searchResults.isEmpty()) item { Text("No users found.", Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) }
+                    if (search.trim().length < 2) item { Text("Enter at least 2 characters to find people.", Modifier.padding(14.dp), color = MessagingPalette.secondary, fontSize = 12.sp) }
+                    else if (searchResults.isEmpty()) item { Text("No users found.", Modifier.padding(14.dp), color = MessagingPalette.secondary, fontSize = 12.sp) }
                     items(searchResults, key = { it.userId }) { person ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Surface(Modifier.size(42.dp), shape = CircleShape, color = Color(0xFF3D3552)) {
-                                Box(contentAlignment = Alignment.Center) { Text(person.username.take(1).uppercase(), color = Color(0xFFE1D5F3), fontWeight = FontWeight.Bold) }
+                            Surface(Modifier.size(42.dp), shape = CircleShape, color = MessagingPalette.avatar) {
+                                val avatar = friendAvatars[person.userId]
+                                if (avatar != null) {
+                                    Image(bitmap = avatar.asImageBitmap(), contentDescription = "${person.username} profile picture", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(CircleShape))
+                                } else {
+                                    Box(contentAlignment = Alignment.Center) { Text(person.username.take(1).uppercase(), color = MessagingPalette.avatarText, fontWeight = FontWeight.Bold) }
+                                }
                             }
                             Column(Modifier.weight(1f)) {
-                                Text(person.username, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                Text("@${person.username}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                                Text(person.username, color = MessagingPalette.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                Text("@${person.username}", color = MessagingPalette.secondary, fontSize = 12.sp)
                             }
                             val isFriend = friends.any { it.friendId == person.userId }
                             val isPending = person.friendshipStatus == "pending"
@@ -516,25 +613,25 @@ fun StudyMessagingScreen(userId: String) {
                                         loadRequests()
                                     } catch (exception: Exception) { error = exception.message ?: "Could not send friend request." }
                                 }
-                            }, shape = RoundedCornerShape(10.dp), color = if (isFriend || isPending) Color(0xFF30343D) else Color(0xFF80699F)) {
-                                Text(if (isFriend) "Friends" else if (isPending) "Pending" else "＋ Add friend", Modifier.padding(horizontal = 12.dp, vertical = 9.dp), color = if (isFriend || isPending) Color(0xFFADB2BE) else Color(0xFFF8F5FC), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            }, shape = RoundedCornerShape(10.dp), color = if (isFriend || isPending) Color(0xFFE9EEF6) else MessagingPalette.blue) {
+                                Text(if (isFriend) "Friends" else if (isPending) "Pending" else "＋ Add friend", Modifier.padding(horizontal = 12.dp, vertical = 9.dp), color = if (isFriend || isPending) MessagingPalette.secondary else Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                             }
                         }
-                        androidx.compose.material3.HorizontalDivider(color = Color(0xFF343842))
+                        androidx.compose.material3.HorizontalDivider(color = MessagingPalette.divider)
                     }
                 }
             } else {
                 val shownRequests = if (friendTab == "requests") incomingRequests else outgoingRequests
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    if (shownRequests.isEmpty()) item { Text(if (friendTab == "requests") "No new friend requests." else "No pending requests.", Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) }
+                    if (shownRequests.isEmpty()) item { Text(if (friendTab == "requests") "No new friend requests." else "No pending requests.", Modifier.padding(14.dp), color = MessagingPalette.secondary, fontSize = 12.sp) }
                     items(shownRequests, key = { it.friendshipId }) { request ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Surface(Modifier.size(42.dp), shape = CircleShape, color = Color(0xFF3D3552)) {
-                                Box(contentAlignment = Alignment.Center) { Text(request.username.take(1).uppercase(), color = Color(0xFFE1D5F3), fontWeight = FontWeight.Bold) }
+                            Surface(Modifier.size(42.dp), shape = CircleShape, color = MessagingPalette.avatar) {
+                                Box(contentAlignment = Alignment.Center) { Text(request.username.take(1).uppercase(), color = MessagingPalette.avatarText, fontWeight = FontWeight.Bold) }
                             }
                             Column(Modifier.weight(1f)) {
-                                Text(request.username, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                Text("@${request.username}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                                Text(request.username, color = MessagingPalette.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                Text("@${request.username}", color = MessagingPalette.secondary, fontSize = 12.sp)
                             }
                             if (friendTab == "requests") {
                                 Surface(Modifier.noRippleClickable {
@@ -546,8 +643,8 @@ fun StudyMessagingScreen(userId: String) {
                                             loadRequests(); loadFriends(); friendListVersion++
                                         }.onFailure { error = it.message ?: "Could not accept request." }
                                     }
-                                }, shape = RoundedCornerShape(10.dp), color = Color(0xFF80699F)) {
-                                    Text("Accept", Modifier.padding(horizontal = 12.dp, vertical = 9.dp), color = Color(0xFFF8F5FC), fontSize = 11.sp)
+                                }, shape = RoundedCornerShape(10.dp), color = MessagingPalette.blue) {
+                                    Text("Accept", Modifier.padding(horizontal = 12.dp, vertical = 9.dp), color = Color.White, fontSize = 11.sp)
                                 }
                                 Text("Decline", Modifier.noRippleClickable {
                                     scope.launch {
@@ -558,7 +655,7 @@ fun StudyMessagingScreen(userId: String) {
                                             loadRequests()
                                         }.onFailure { error = it.message ?: "Could not decline request." }
                                     }
-                                }.padding(8.dp), color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                                }.padding(8.dp), color = MessagingPalette.error, fontSize = 11.sp)
                             } else {
                                 Text("Cancel", Modifier.noRippleClickable {
                                     scope.launch {
@@ -567,35 +664,44 @@ fun StudyMessagingScreen(userId: String) {
                                             loadRequests()
                                         }.onFailure { error = it.message ?: "Could not cancel request." }
                                     }
-                                }.padding(8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                                }.padding(8.dp), color = MessagingPalette.secondary, fontSize = 11.sp)
                             }
                         }
-                        androidx.compose.material3.HorizontalDivider(color = Color(0xFF343842))
+                        androidx.compose.material3.HorizontalDivider(color = MessagingPalette.divider)
                     }
                 }
             }
         } else {
             Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Messages", color = MaterialTheme.colorScheme.onBackground, fontSize = 25.sp, fontWeight = FontWeight.Bold)
-                    Text("Your conversations", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                    Text("Messages", color = MessagingPalette.text, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                    Text("Your conversations", color = MessagingPalette.secondary, fontSize = 12.sp)
                 }
-                Surface(Modifier.size(42.dp).noRippleClickable { addFriendMode = true; friendTab = "search"; search = "" }, shape = CircleShape, color = Color(0xFF30343D)) {
-                    Box(contentAlignment = Alignment.Center) { Text("＋", color = Color(0xFFE1D5F3), fontSize = 24.sp) }
+                Surface(Modifier.size(40.dp).noRippleClickable {
+                    conversationSearchVisible = !conversationSearchVisible
+                    if (!conversationSearchVisible) search = ""
+                }, shape = CircleShape, color = MessagingPalette.bluePale) {
+                    Box(contentAlignment = Alignment.Center) { Text("⌕", color = MessagingPalette.blue, fontSize = 26.sp) }
                 }
-                Spacer(Modifier.width(8.dp))
-                Surface(Modifier.size(42.dp).noRippleClickable { addFriendMode = true; friendTab = "requests"; scope.launch { runCatching { loadRequests() } } }, shape = CircleShape, color = Color(0xFF30343D)) {
-                    Box(contentAlignment = Alignment.Center) { Text("♧", color = Color(0xFFE1D5F3), fontSize = 21.sp) }
+                Spacer(Modifier.width(7.dp))
+                Surface(Modifier.size(40.dp).noRippleClickable { addFriendMode = true; friendTab = "search"; search = "" }, shape = CircleShape, color = MessagingPalette.bluePale) {
+                    Box(contentAlignment = Alignment.Center) { Text("＋", color = MessagingPalette.blue, fontSize = 24.sp) }
+                }
+                Spacer(Modifier.width(7.dp))
+                Surface(Modifier.size(40.dp).noRippleClickable { addFriendMode = true; friendTab = "requests"; scope.launch { runCatching { loadRequests() } } }, shape = CircleShape, color = MessagingPalette.bluePale) {
+                    Box(contentAlignment = Alignment.Center) { Text("♧", color = MessagingPalette.blue, fontSize = 21.sp) }
                 }
             }
-            OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp), singleLine = true, placeholder = { Text("Search conversations…") }, shape = RoundedCornerShape(22.dp), colors = messagingFieldColors())
+            if (conversationSearchVisible) {
+                OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp), singleLine = true, placeholder = { Text("Search conversations…") }, shape = RoundedCornerShape(22.dp), colors = messagingFieldColors())
+            }
             if (loading) {
-                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("Loading conversations…", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp) }
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("Loading conversations…", color = MessagingPalette.secondary, fontSize = 13.sp) }
             } else if (friends.isEmpty()) {
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("No conversations yet", color = MaterialTheme.colorScheme.onBackground, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                        Text("Add a friend to start messaging.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                        Text("No conversations yet", color = MessagingPalette.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Add a friend to start messaging.", color = MessagingPalette.secondary, fontSize = 12.sp)
                     }
                 }
             } else {
@@ -621,25 +727,31 @@ fun StudyMessagingScreen(userId: String) {
                                 } finally { conversationOpening = false }
                             }
                         }.padding(vertical = 8.dp, horizontal = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Surface(Modifier.size(48.dp), shape = CircleShape, color = Color(0xFF3D3552)) {
-                                Box(contentAlignment = Alignment.Center) { Text(friend.username.take(1).uppercase(), color = Color(0xFFE1D5F3), fontSize = 17.sp, fontWeight = FontWeight.Bold) }
+                            Surface(Modifier.size(48.dp), shape = CircleShape, color = MessagingPalette.avatar) {
+                                val avatar = friendAvatars[friend.friendId]
+                                if (avatar != null) {
+                                    Image(bitmap = avatar.asImageBitmap(), contentDescription = "${friend.username} profile picture", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(CircleShape))
+                                } else {
+                                    Box(contentAlignment = Alignment.Center) { Text(friend.username.take(1).uppercase(), color = MessagingPalette.avatarText, fontSize = 17.sp, fontWeight = FontWeight.Bold) }
+                                }
                             }
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Text(friend.username, color = MaterialTheme.colorScheme.onBackground, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                                Text("Open conversation", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                                Text(friend.username, color = MessagingPalette.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                Text("Open conversation", color = MessagingPalette.secondary, fontSize = 12.sp)
                             }
                             val unread = unreadCounts[friend.friendId] ?: 0
                             if (unread > 0) Surface(shape = CircleShape, color = Color(0xFF347FDF)) {
                                 Text(if (unread > 9) "9+" else unread.toString(), Modifier.padding(horizontal = 6.dp, vertical = 3.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             }
                         }
-                        androidx.compose.material3.HorizontalDivider(color = Color(0xFF343842))
+                        androidx.compose.material3.HorizontalDivider(color = MessagingPalette.divider)
                     }
                 }
             }
         }
 
-        if (!error.isNullOrBlank()) Text(error.orEmpty(), color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+        if (!error.isNullOrBlank()) Text(error.orEmpty(), color = MessagingPalette.error, fontSize = 11.sp)
+    }
     }
 }
 

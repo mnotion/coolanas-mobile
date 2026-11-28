@@ -540,7 +540,7 @@ fun StudyDashboardScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(animatedBackground),
+            .background(if (activePage == DashboardPage.Messages) Color(0xFFF4F6FB) else animatedBackground),
         contentAlignment = Alignment.Center
     ) {
         AnimatedContent(
@@ -1104,8 +1104,11 @@ private fun CoolanasBottomNavigation(
             .widthIn(max = 380.dp)
             .height(62.dp),
         shape = RoundedCornerShape(32.dp),
-        color = Color(0xE522252B),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
+        color = if (activePage == DashboardPage.Messages) Color(0xF7FFFFFF) else Color(0xE522252B),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (activePage == DashboardPage.Messages) Color(0xFFDDE3ED) else Color.White.copy(alpha = 0.10f)
+        ),
         tonalElevation = 10.dp,
         shadowElevation = 12.dp
     ) {
@@ -1120,7 +1123,7 @@ private fun CoolanasBottomNavigation(
             ).forEach { (page, label, symbol) ->
                 val selected = activePage == page
                 val selectionColour by animateColorAsState(
-                    targetValue = if (selected) Color(0xFF514568) else Color.Transparent,
+                    targetValue = if (selected) { if (activePage == DashboardPage.Messages) Color(0xFFDCE9FF) else Color(0xFF514568) } else Color.Transparent,
                     animationSpec = tween(480, easing = FastOutSlowInEasing),
                     label = "navigation-selection-$label"
                 )
@@ -1144,13 +1147,13 @@ private fun CoolanasBottomNavigation(
                     verticalArrangement = Arrangement.Center
                 ) {
                     if (page == DashboardPage.Messages) {
-                        MessagingNavigationGlyph(if (selected) Color(0xFFF0E8FF) else Color(0xFFB8BBC4))
+                        MessagingNavigationGlyph(if (activePage == DashboardPage.Messages) { if (selected) Color(0xFF246CCB) else Color(0xFF7B879B) } else if (selected) Color(0xFFF0E8FF) else Color(0xFFB8BBC4))
                     } else {
-                        Text(symbol, color = if (selected) Color(0xFFF0E8FF) else Color(0xFFB8BBC4), fontSize = 17.sp)
+                        Text(symbol, color = if (activePage == DashboardPage.Messages) { if (selected) Color(0xFF246CCB) else Color(0xFF7B879B) } else if (selected) Color(0xFFF0E8FF) else Color(0xFFB8BBC4), fontSize = 17.sp)
                     }
                     Text(
                         label,
-                        color = if (selected) Color(0xFFF0E8FF) else Color(0xFFB8BBC4),
+                        color = if (activePage == DashboardPage.Messages) { if (selected) Color(0xFF246CCB) else Color(0xFF7B879B) } else if (selected) Color(0xFFF0E8FF) else Color(0xFFB8BBC4),
                         fontSize = 10.sp,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
                     )
