@@ -627,9 +627,7 @@ fun StudyDashboardScreen(
                     modifier = Modifier
                         .size(44.dp)
                         .shadow(5.dp, CircleShape)
-                        .combinedClickable(
-                            onClick = { accountMenuOpen = true }
-                        ),
+                        .noRippleClickable { accountMenuOpen = true },
                     shape = CircleShape,
                     color = if (darkMode) Color(0xFF303238) else Color(0xFFEEEEEE),
                     border = androidx.compose.foundation.BorderStroke(
@@ -723,10 +721,10 @@ fun StudyDashboardScreen(
                     Text(
                         text = formatStudyTime(timer.elapsedAt(now + serverClockOffsetMs)),
                         modifier = Modifier.align(Alignment.Center),
-                        fontSize = if (timerRunning) 44.sp else 34.sp,
+                        fontSize = if (timerRunning) 34.sp else 34.sp,
                         fontWeight = FontWeight.SemiBold,
                         letterSpacing = (-1.8).sp,
-                        color = Color(0xFF171717),
+                        color = if (darkMode && !timerRunning && !timerPaused) Color(0xFFF6F6F7) else Color(0xFF171717),
                         textAlign = TextAlign.Center
                     )
                     Row(
@@ -824,14 +822,15 @@ fun StudyDashboardScreen(
                     Box {
                         val chosen = selectedSubject == subject.name
                         Surface(
-                            modifier = Modifier.combinedClickable(
-                                enabled = subjectsEditable,
+                            modifier = Modifier.noRippleCombinedClickable(
                                 onClick = {
                                     selectedSubject = subject.name
                                     repository.selectSubject(userId, subject.name)
                                 },
                                 onDoubleClick = {
-                                    subjectMenu = subject.name
+                                    inlineEditingSubject = subject.name
+                                    inlineSubjectDraft = subject.name
+                                    subjectMenu = null
                                 },
                                 onLongClick = {
                                     subjectMenu = subject.name
@@ -848,13 +847,33 @@ fun StudyDashboardScreen(
                                 if (chosen) Color(0xFF333333) else MaterialTheme.colorScheme.outline
                             )
                         ) {
-                            Text(
-                                text = subject.name,
-                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
-                                color = if (chosen || !darkMode) Color(0xFF444444) else Color(0xFFEAEAEA),
-                                fontSize = 12.sp,
-                                maxLines = 1
-                            )
+                            if (inlineEditingSubject == subject.name) {
+                                BasicTextField(
+                                    value = inlineSubjectDraft,
+                                    onValueChange = { inlineSubjectDraft = it.take(32) },
+                                    modifier = Modifier
+                                        .focusRequester(inlineSubjectFocusRequester)
+                                        .widthIn(min = 34.dp, max = 124.dp)
+                                        .padding(horizontal = 11.dp, vertical = 7.dp),
+                                    singleLine = true,
+                                    textStyle = TextStyle(
+                                        color = if (chosen) Color(0xFF24212A) else Color(0xFFF2F2F4),
+                                        fontSize = 12.sp
+                                    ),
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                    keyboardActions = KeyboardActions(
+                                        onDone = { finishInlineSubjectEdit(subject.name) }
+                                    )
+                                )
+                            } else {
+                                Text(
+                                    text = subject.name,
+                                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
+                                    color = if (chosen) Color(0xFF444444) else Color(0xFFEAEAEA),
+                                    fontSize = 12.sp,
+                                    maxLines = 1
+                                )
+                            }
                         }
                         DropdownMenu(
                             expanded = subjectMenu == subject.name,
@@ -864,8 +883,8 @@ fun StudyDashboardScreen(
                                 text = { Text("Rename") },
                                 onClick = {
                                     subjectMenu = null
-                                    editorSubject = subject
-                                    showSubjectEditor = true
+                                    inlineEditingSubject = subject.name
+                                    inlineSubjectDraft = subject.name
                                 }
                             )
                             Text(
@@ -883,15 +902,14 @@ fun StudyDashboardScreen(
                                     Surface(
                                         modifier = Modifier
                                             .size(22.dp)
-                                            .combinedClickable(
-                                                onClick = {
+                                            .noRippleClickable {
                                                     val updated = subjects.map {
                                                         if (it.name == subject.name) it.copy(color = index) else it
                                                     }
                                                     saveSubjectChanges(updated)
                                                     subjectMenu = null
                                                 }
-                                            ),
+                                            },
                                         shape = CircleShape,
                                         color = Color(paletteColour),
                                         border = androidx.compose.foundation.BorderStroke(
@@ -915,17 +933,28 @@ fun StudyDashboardScreen(
                     Surface(
                         modifier = Modifier
                             .size(30.dp)
-                            .combinedClickable(
-                                onClick = {
-                                    editorSubject = null
-                                    showSubjectEditor = true
+                            .noRippleClickable {
+                                if (subjects.size < 40) {
+                                    val base = "New subject"
+                                    var candidate = base
+                                    var suffix = 2
+                                    while (subjects.any { it.name.equals(candidate, ignoreCase = true) }) {
+                                        candidate = "$base $suffix"
+                                        suffix++
+                                    }
+                                    val updated = subjects + StudySubject(candidate, 0)
+                                    selectedSubject = candidate
+                                    repository.selectSubject(userId, candidate)
+                                    saveSubjectChanges(updated)
+                                    inlineSubjectDraft = candidate
+                                    inlineEditingSubject = candidate
                                 }
-                            ),
+                            },
                         shape = CircleShape,
-                        color = if (darkMode) Color(0xFF303238) else Color(0xFFFDFDFD),
+                        color = Color(0xFF303238),
                         border = androidx.compose.foundation.BorderStroke(
                             1.dp,
-                            if (darkMode) Color(0xFF62656D) else Color(0xFFBBBBBB)
+                            Color(0xFF62656D)
                         )
                     ) {
                         Box(contentAlignment = Alignment.Center) {
@@ -957,7 +986,7 @@ private fun AnalyticsNavigationButton(enabled: Boolean, onClick: () -> Unit) {
     Surface(
         modifier = Modifier
             .size(44.dp)
-            .combinedClickable(enabled = enabled, onClick = onClick)
+            .noRippleClickable(onClick)
             .semantics { contentDescription = "Open analytics" },
         shape = CircleShape,
         color = Color(0xFFF7F7F7),
@@ -1006,7 +1035,7 @@ private fun TimerControlButton(
     Surface(
         modifier = Modifier
             .size(size)
-            .combinedClickable(enabled = enabled, onClick = onClick)
+            .noRippleClickable(onClick)
             .semantics { this.contentDescription = contentDescription },
         shape = CircleShape,
         color = background.copy(alpha = if (enabled) 1f else 0.4f),
@@ -1095,7 +1124,7 @@ private fun SubjectEditorDialog(
                         Surface(
                             modifier = Modifier
                                 .size(28.dp)
-                                .combinedClickable(onClick = { colorIndex = index }),
+                                .noRippleClickable { colorIndex = index },
                             shape = CircleShape,
                             color = Color(colour),
                             border = androidx.compose.foundation.BorderStroke(
