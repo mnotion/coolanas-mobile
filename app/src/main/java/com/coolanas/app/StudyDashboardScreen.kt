@@ -747,7 +747,7 @@ fun StudyDashboardScreen(
                     Text(
                         text = formatStudyTime(timer.elapsedAt(now + serverClockOffsetMs)),
                         modifier = Modifier.align(Alignment.Center),
-                        fontSize = if (timerRunning) 34.sp else 34.sp,
+                        fontSize = if (timerRunning) 27.sp else 34.sp,
                         fontWeight = FontWeight.SemiBold,
                         letterSpacing = (-1.8).sp,
                         color = if (darkMode && !timerRunning && !timerPaused) Color(0xFFF6F6F7) else Color(0xFF171717),
