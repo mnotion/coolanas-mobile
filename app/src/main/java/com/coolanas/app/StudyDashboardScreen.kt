@@ -19,6 +19,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.AnimatedContent
 import android.content.Context
+import kotlinx.coroutines.awaitCancellation
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -57,13 +58,10 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -89,6 +87,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -159,6 +158,7 @@ fun StudyDashboardScreen(
     var accountMenuOpen by remember(userId) { mutableStateOf(false) }
     var subjectMenu by remember(userId) { mutableStateOf<String?>(null) }
     var inlineEditingSubject by remember(userId) { mutableStateOf<String?>(null) }
+    var inlineSubjectDraft by remember(userId) { mutableStateOf("") }
     val inlineSubjectFocusRequester = remember { FocusRequester() }
     var activePage by remember(userId) { mutableStateOf(DashboardPage.Timer) }
     val showAnalytics = activePage == DashboardPage.Analytics
@@ -205,6 +205,37 @@ fun StudyDashboardScreen(
             subjects.firstOrNull { it.name == activeSubjectName }?.color ?: 0
         ]
     )
+
+    fun finishInlineSubjectEdit(oldName: String) {
+        val newName = inlineSubjectDraft.trim().take(32)
+        val duplicate = newName.isNotBlank() && subjects.any {
+            it.name.equals(newName, ignoreCase = true) && it.name != oldName
+        }
+        if (duplicate) {
+            stopwatchError = "A subject with that name already exists."
+            inlineSubjectDraft = oldName
+            inlineEditingSubject = null
+            return
+        }
+        val updated = if (newName.isBlank()) {
+            subjects.filterNot { it.name == oldName }
+        } else {
+            subjects.map { if (it.name == oldName) it.copy(name = newName) else it }
+        }
+        if (selectedSubject == oldName) {
+            selectedSubject = newName.ifBlank { updated.firstOrNull()?.name }
+            repository.selectSubject(userId, selectedSubject)
+        }
+        saveSubjectChanges(updated)
+        inlineEditingSubject = null
+    }
+
+    LaunchedEffect(inlineEditingSubject) {
+        if (inlineEditingSubject != null) {
+            delay(100L)
+            runCatching { inlineSubjectFocusRequester.requestFocus() }
+        }
+    }
 
     LaunchedEffect(userId) {
         entryVisible = false
@@ -511,12 +542,12 @@ fun StudyDashboardScreen(
                 timer = timer,
                 serverNowMillis = now + serverClockOffsetMs,
                 activeSubject = timer.runningSubject ?: selectedSubject ?: "Unassigned",
-                darkMode = darkMode,
                 loading = analyticsLoading,
-                error = analyticsError,
-                onBack = { showAnalytics = false },
-                onRefresh = { analyticsRefreshVersion++ }
+                profileAvatar = avatar,
+                onBack = { activePage = DashboardPage.Timer }
             )
+        } else if (showMessages) {
+            StudyMessagingScreen(userId = userId)
         } else {
         if (timerRunning || !selectedSubject.isNullOrBlank()) {
             Canvas(Modifier.fillMaxSize()) {
@@ -573,24 +604,6 @@ fun StudyDashboardScreen(
                     )
                 )
             }
-        }
-
-        AnimatedVisibility(
-            visible = entryVisible && !timerRunning,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(top = 18.dp, start = 20.dp),
-            enter = fadeIn(tween(750, easing = FastOutSlowInEasing)) +
-                scaleIn(initialScale = 0.86f, animationSpec = tween(850, easing = FastOutSlowInEasing)) +
-                slideInVertically(initialOffsetY = { -18 }, animationSpec = tween(850, easing = FastOutSlowInEasing)),
-            exit = fadeOut(tween(320, easing = FastOutSlowInEasing)) +
-                scaleOut(targetScale = 0.86f, animationSpec = tween(320, easing = FastOutSlowInEasing)) +
-                slideOutVertically(targetOffsetY = { -12 }, animationSpec = tween(320, easing = FastOutSlowInEasing))
-        ) {
-            AnalyticsNavigationButton(
-                enabled = stopwatchReady,
-                onClick = { showAnalytics = true }
-            )
         }
 
         AnimatedVisibility(
@@ -664,27 +677,6 @@ fun StudyDashboardScreen(
                             color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
                         ) {}
                         Spacer(Modifier.height(10.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Dark mode", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
-                            }
-                            Switch(
-                                checked = darkMode,
-                                onCheckedChange = {
-                                    setAccountTheme(it)
-                                    accountMenuOpen = false
-                                }
-                            )
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Surface(
-                            modifier = Modifier.fillMaxWidth().height(1.dp),
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
-                        ) {}
                         DropdownMenuItem(
                             text = { Text("Sign out") },
                             onClick = {
@@ -940,48 +932,21 @@ fun StudyDashboardScreen(
             }
         }
         }
+
+        if (!timerRunning || activePage != DashboardPage.Timer) {
+            CoolanasBottomNavigation(
+                activePage = activePage,
+                onSelect = { page ->
+                    activePage = page
+                    accountMenuOpen = false
+                    subjectMenu = null
+                },
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
+            )
+        }
     }
 
-    if (showSubjectEditor && !showAnalytics) {
-        SubjectEditorDialog(
-            subject = editorSubject,
-            darkMode = darkMode,
-            onDismiss = {
-                showSubjectEditor = false
-                editorSubject = null
-            },
-            onSave = { updated ->
-                val old = editorSubject
-                val duplicate = subjects.any {
-                    it.name.equals(updated.name, ignoreCase = true) && it.name != old?.name
-                }
-                if (!duplicate) {
-                    val current = subjects.toMutableList()
-                    if (old == null) {
-                        if (current.size < 40) {
-                            current.add(updated)
-                            selectedSubject = updated.name
-                            repository.selectSubject(userId, updated.name)
-                            saveSubjectChanges(current)
-                        }
-                    } else {
-                        val index = current.indexOfFirst { it.name == old.name }
-                        if (index >= 0) {
-                            current[index] = updated
-                            if (selectedSubject == old.name) {
-                                selectedSubject = updated.name
-                                repository.selectSubject(userId, updated.name)
-                            }
-                            saveSubjectChanges(current)
-                        }
-                    }
-                }
-                showSubjectEditor = false
-                editorSubject = null
-            }
-        )
-    }
-}
+
 
 @Composable
 private fun AnalyticsNavigationButton(enabled: Boolean, onClick: () -> Unit) {
