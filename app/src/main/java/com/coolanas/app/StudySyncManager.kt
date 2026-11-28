@@ -14,6 +14,7 @@ import androidx.work.Data
 import androidx.work.WorkManager
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.functions.functions
+import io.github.jan.supabase.postgrest.result.decodeList
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.Headers
@@ -23,6 +24,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -67,6 +70,33 @@ data class StudyAnalyticsRecord(
     val hourlyMs: Map<Int, Long>,
     val subject: String,
     val eventId: String
+)
+
+data class StudyAnalyticsSnapshot(
+    val daily: Map<String, Long> = emptyMap(),
+    val dailySubjects: Map<String, Map<String, Long>> = emptyMap(),
+    val dailyHours: Map<String, Map<Int, Long>> = emptyMap(),
+    val updatedAt: String? = null,
+    val legacyImportPending: Boolean = false,
+    val mirrorPending: Boolean = false
+)
+
+data class AccountStopwatchActionResult(
+    val timer: StudyTimerState,
+    val serverNowMs: Long,
+    val serverClockOffsetMs: Long,
+    val actionChanged: Boolean,
+    val previousStartedAtMs: Long?
+)
+
+@Serializable
+private data class AccountStopwatchTerminalRow(
+    @SerialName("elapsed_ms") val elapsedMs: Long,
+    @SerialName("started_at") val startedAt: String? = null,
+    val version: Long,
+    @SerialName("server_now") val serverNow: String,
+    @SerialName("previous_started_at") val previousStartedAt: String? = null,
+    @SerialName("action_changed") val actionChanged: Boolean
 )
 
 class StudySyncManager(context: Context) {
@@ -279,6 +309,120 @@ class StudySyncManager(context: Context) {
             }
             null
         }
+
+    /**
+     * Reads or mutates the single account-owned stopwatch in Supabase.
+     * The database RPC is the source of truth; local preferences are only a display cache.
+     */
+    suspend fun accountStopwatchAction(
+        userId: String,
+        action: String,
+        subjectForStart: String? = null
+    ): AccountStopwatchActionResult = withContext(Dispatchers.IO) {
+        require(action in setOf("get", "start", "pause", "reset")) {
+            "Unsupported stopwatch action."
+        }
+        val response = SupabaseClientProvider.client.postgrest.rpc(
+            function = "coolanas_account_stopwatch_action",
+            parameters = buildJsonObject {
+                put("p_action", JsonPrimitive(action))
+            }
+        )
+        val row = response.decodeList<AccountStopwatchTerminalRow>().firstOrNull()
+            ?: throw IllegalStateException("The account stopwatch terminal returned no state.")
+        val serverNowMs = Instant.parse(row.serverNow).toEpochMilli()
+        val startedAtMs = row.startedAt?.let { Instant.parse(it).toEpochMilli() }
+        val previousStartedAtMs = row.previousStartedAt?.let {
+            runCatching { Instant.parse(it).toEpochMilli() }.getOrNull()
+        }
+
+        synchronized(timerCheckpointLock) {
+            val storedRunningSubject = preferences.getString(runningSubjectKey(userId), null)
+            val selected = preferences.getString(selectedSubjectKey(userId), null)
+            val subjectToRecord = storedRunningSubject ?: selected ?: "Unassigned"
+            val completedRecords = if (
+                action in setOf("pause", "reset") &&
+                row.actionChanged &&
+                previousStartedAtMs != null &&
+                serverNowMs > previousStartedAtMs
+            ) {
+                splitInterval(previousStartedAtMs, serverNowMs, subjectToRecord)
+            } else {
+                emptyList()
+            }
+            val queue = readAnalyticsQueue(userId).toMutableList()
+            queue.addAll(completedRecords)
+
+            val editor = preferences.edit()
+                .putLong(elapsedKey(userId), row.elapsedMs.coerceAtLeast(0L))
+            if (startedAtMs != null) {
+                editor.putLong(startedKey(userId), startedAtMs)
+            } else {
+                editor.remove(startedKey(userId))
+            }
+            if (action == "start" && startedAtMs != null) {
+                val chosen = subjectForStart?.takeIf { it.isNotBlank() } ?: selected
+                if (chosen != null) editor.putString(runningSubjectKey(userId), chosen)
+                else editor.remove(runningSubjectKey(userId))
+            } else if (startedAtMs == null) {
+                editor.remove(runningSubjectKey(userId))
+            } else if (storedRunningSubject == null && selected != null) {
+                // A timer started on another Coolanas client has no subject column
+                // in the terminal, so use this device's selected subject as a fallback.
+                editor.putString(runningSubjectKey(userId), selected)
+            }
+            if (completedRecords.isNotEmpty()) {
+                editor.putString(queueKey(userId), encodeAnalyticsQueue(queue))
+            }
+            if (!editor.commit()) {
+                throw IllegalStateException("Could not persist the stopwatch cache and completed analytics.")
+            }
+        }
+
+        AccountStopwatchActionResult(
+            timer = timerState(userId),
+            serverNowMs = serverNowMs,
+            serverClockOffsetMs = serverNowMs - System.currentTimeMillis(),
+            actionChanged = row.actionChanged,
+            previousStartedAtMs = previousStartedAtMs
+        )
+    }
+
+    /** Reads the account analytics document from the same endpoint used by the website. */
+    suspend fun loadAnalytics(userId: String): StudyAnalyticsSnapshot = withContext(Dispatchers.IO) {
+        require(userId.isNotBlank())
+        val result = invokeFunction(buildJsonObject {
+            put("action", JsonPrimitive("analytics_get"))
+        })
+
+        fun longMap(element: JsonElement?): Map<String, Long> {
+            val obj = element as? JsonObject ?: return emptyMap()
+            return obj.mapNotNull { (key, value) ->
+                val amount = value.jsonPrimitive.longOrNull
+                if (amount != null && amount >= 0L) key to amount else null
+            }.toMap()
+        }
+        fun nestedLongMap(element: JsonElement?): Map<String, Map<String, Long>> {
+            val obj = element as? JsonObject ?: return emptyMap()
+            return obj.mapNotNull { (date, value) ->
+                val values = longMap(value)
+                if (values.isNotEmpty()) date to values else null
+            }.toMap()
+        }
+        val hourly = nestedLongMap(result["dailyHours"]).mapValues { (_, values) ->
+            values.mapNotNull { (hour, duration) ->
+                hour.toIntOrNull()?.takeIf { it in 0..23 }?.let { it to duration }
+            }.toMap()
+        }
+        StudyAnalyticsSnapshot(
+            daily = longMap(result["daily"]),
+            dailySubjects = nestedLongMap(result["dailySubjects"]),
+            dailyHours = hourly,
+            updatedAt = result["updatedAt"]?.jsonPrimitive?.contentOrNull,
+            legacyImportPending = result["legacyImportPending"]?.jsonPrimitive?.booleanOrNull == true,
+            mirrorPending = result["mirrorPending"]?.jsonPrimitive?.booleanOrNull == true
+        )
+    }
 
     private fun downloadAvatar(imageUrl: String): Bitmap? {
         var connection: HttpURLConnection? = null
