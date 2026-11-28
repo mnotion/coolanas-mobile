@@ -33,3 +33,8 @@ fun Modifier.noRippleCombinedClickable(
         onDoubleClick = onDoubleClick
     )
 }
+
+object CoolanasAppRuntime {
+    @Volatile
+    var isForeground: Boolean = false
+}
