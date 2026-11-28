@@ -138,7 +138,7 @@ private fun updateStudyTimerNotification(
         val subject = state.runningSubject ?: selectedSubject ?: "Studying"
         if (CoolanasAppRuntime.isForeground) {
             StudyTimerNotificationService.show(context, elapsed, subject)
-        } else {
+        } else if (!StudyTimerNotificationService.isRunningForeground) {
             CoolanasNotifications.showBackgroundTimer(context, elapsed, subject)
         }
     } else {
