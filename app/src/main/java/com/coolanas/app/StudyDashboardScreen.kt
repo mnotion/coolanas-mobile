@@ -852,9 +852,7 @@ fun StudyDashboardScreen(
                             modifier = Modifier.noRippleClickable {
                                 val tappedAt = android.os.SystemClock.elapsedRealtime()
                                 if (lastSubjectTapAt > 0L && tappedAt - lastSubjectTapAt <= 350L) {
-                                    inlineEditingSubject = subject.name
-                                    inlineSubjectDraft = subject.name
-                                    subjectMenu = null
+                                    subjectMenu = subject.name
                                     lastSubjectTapAt = 0L
                                 } else {
                                     lastSubjectTapAt = tappedAt
