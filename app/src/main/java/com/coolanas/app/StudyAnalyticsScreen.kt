@@ -528,6 +528,7 @@ private fun SubjectProgress(
 ) {
     val colorIndex = subjects.firstOrNull { it.name == name }?.color ?: 0
     val color = Color(StudySyncManager.subjectPalette.getOrElse(colorIndex) { StudySyncManager.subjectPalette[0] })
+    val trackColor = MaterialTheme.colorScheme.surfaceVariant
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(name, color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
@@ -535,7 +536,7 @@ private fun SubjectProgress(
         }
         Canvas(Modifier.fillMaxWidth().height(8.dp)) {
             drawRoundRect(
-                MaterialTheme.colorScheme.surfaceVariant,
+                trackColor,
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2f)
             )
             drawRoundRect(
