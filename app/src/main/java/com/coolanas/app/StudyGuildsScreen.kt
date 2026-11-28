@@ -123,7 +123,7 @@ private object NativeGuildRepository {
                 lt("created_at", before)
             }
             order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
-            limit(pageSize)
+            limit(pageSize.toLong())
         }.decodeList<GuildMessageData>().reversed()
     }
 
