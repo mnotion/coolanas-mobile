@@ -125,7 +125,8 @@ fun StudyAnalyticsScreen(
     activeSubject: String,
     loading: Boolean,
     profileAvatar: Bitmap?,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onProfileClick: () -> Unit
 ) {
     var section by remember { mutableStateOf(AnalyticsSection.Monthly) }
     var month by remember { mutableStateOf(YearMonth.now()) }
@@ -186,7 +187,8 @@ fun StudyAnalyticsScreen(
             Surface(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .size(42.dp),
+                    .size(42.dp)
+                    .noRippleClickable(onProfileClick),
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.surface,
                 border = androidx.compose.foundation.BorderStroke(
