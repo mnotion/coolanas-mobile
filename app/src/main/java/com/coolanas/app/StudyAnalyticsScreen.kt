@@ -1,7 +1,17 @@
 package com.coolanas.app
 
+import android.graphics.Bitmap
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,6 +24,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,9 +36,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -34,25 +49,35 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.asImageBitmap
 import java.time.DayOfWeek
 import java.time.Instant
-import java.time.ZoneId
-import java.time.temporal.ChronoUnit
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
+import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.sin
 
+private enum class AnalyticsSection { Monthly, Calendar }
 
-/**
- * The website's monthly report temporarily includes the still-running interval.
- * This is presentation-only: the live session is not uploaded to analytics until
- * the account stopwatch is paused or reset.
- */
+private val chartPalette = listOf(
+    Color(0xFF8CC7F2), Color(0xFFC8A6F3), Color(0xFFF2A8D5),
+    Color(0xFFEDC36F), Color(0xFF8DD0B4), Color(0xFFE98E87),
+    Color(0xFF9FADEB), Color(0xFFB4C47B)
+)
+
 private fun addRunningSessionPreview(
     snapshot: StudyAnalyticsSnapshot,
     timer: StudyTimerState,
@@ -68,15 +93,16 @@ private fun addRunningSessionPreview(
     var cursor = start
     while (cursor < serverNowMillis) {
         val local = Instant.ofEpochMilli(cursor).atZone(zone)
-        val nextHour = local.truncatedTo(ChronoUnit.HOURS).plusHours(1).toInstant().toEpochMilli()
+        val nextHour = local.truncatedTo(java.time.temporal.ChronoUnit.HOURS)
+            .plusHours(1).toInstant().toEpochMilli()
         val end = minOf(serverNowMillis, nextHour.coerceAtLeast(cursor + 1L))
         val duration = end - cursor
         val date = local.toLocalDate().toString()
         val hour = local.hour
+        val subjectName = subject.ifBlank { "Unassigned" }
         daily[date] = (daily[date] ?: 0L) + duration
         val subjectDay = subjects.getOrPut(date) { mutableMapOf() }
-        subjectDay[subject.ifBlank { "Unassigned" }] =
-            (subjectDay[subject.ifBlank { "Unassigned" }] ?: 0L) + duration
+        subjectDay[subjectName] = (subjectDay[subjectName] ?: 0L) + duration
         val hourDay = hours.getOrPut(date) { mutableMapOf() }
         hourDay[hour] = (hourDay[hour] ?: 0L) + duration
         cursor = end
@@ -88,8 +114,6 @@ private fun addRunningSessionPreview(
     )
 }
 
-private enum class AnalyticsSection { Monthly, Calendar }
-
 @Composable
 fun StudyAnalyticsScreen(
     snapshot: StudyAnalyticsSnapshot,
@@ -97,386 +121,500 @@ fun StudyAnalyticsScreen(
     timer: StudyTimerState,
     serverNowMillis: Long,
     activeSubject: String,
-    darkMode: Boolean,
     loading: Boolean,
-    error: String?,
-    onBack: () -> Unit,
-    onRefresh: () -> Unit
+    profileAvatar: Bitmap?,
+    onBack: () -> Unit
 ) {
     var section by remember { mutableStateOf(AnalyticsSection.Monthly) }
     var month by remember { mutableStateOf(YearMonth.now()) }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var pageDrag by remember { mutableFloatStateOf(0f) }
     val today = LocalDate.now()
-    val displaySnapshot = addRunningSessionPreview(
-        snapshot = snapshot,
-        timer = timer,
-        serverNowMillis = serverNowMillis,
-        subject = activeSubject
-    )
-    val monthKey = month.toString()
-    val monthValues = (1..month.lengthOfMonth()).map { day ->
-        val key = monthKey + "-" + day.toString().padStart(2, '0')
-        max(0L, displaySnapshot.daily[key] ?: 0L)
-    }
-    val monthTotal = monthValues.sum()
-    val daysStudied = monthValues.count { it > 0L }
-    val average = if (month.lengthOfMonth() > 0) monthTotal / month.lengthOfMonth() else 0L
-    val bestDay = monthValues.maxOrNull() ?: 0L
-    val subjectTotals = linkedMapOf<String, Long>()
-    displaySnapshot.dailySubjects.forEach { (date, entries) ->
-        if (date.startsWith("$monthKey-")) {
-            entries.forEach { (name, duration) ->
-                subjectTotals[name] = (subjectTotals[name] ?: 0L) + duration
-            }
-        }
-    }
-    val maxSubject = subjectTotals.values.maxOrNull()?.coerceAtLeast(1L) ?: 1L
-    val dailyKey = selectedDate.toString()
-    val selectedTotal = displaySnapshot.daily[dailyKey] ?: 0L
-    val selectedSubjects = displaySnapshot.dailySubjects[dailyKey].orEmpty()
-        .filterValues { it > 0L }
-        .toList()
-        .sortedByDescending { it.second }
-    val selectedHours = displaySnapshot.dailyHours[dailyKey].orEmpty()
-    val selectedTaskSnapshot = displaySnapshot.taskDays[dailyKey]
-    val selectedTasks = selectedTaskSnapshot?.tasks
-        ?: displaySnapshot.tasks.filter { it.completedAt == dailyKey }
-            .map { it.copy(completed = true) }
+    val data = addRunningSessionPreview(snapshot, timer, serverNowMillis, activeSubject)
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 18.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .padding(horizontal = 18.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 34.dp, bottom = 22.dp)
+                .height(68.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Surface(
-                    modifier = Modifier.size(42.dp).clickable(onClick = onBack),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceVariant
-                ) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .size(42.dp)
+                    .noRippleClickable(onBack),
+                color = MaterialTheme.colorScheme.surface,
+                shape = CircleShape,
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                )
+            ) {
+                Canvas(Modifier.padding(13.dp)) {
+                    val path = Path().apply {
+                        moveTo(size.width * 0.72f, size.height * 0.08f)
+                        lineTo(size.width * 0.30f, size.height * 0.5f)
+                        lineTo(size.width * 0.72f, size.height * 0.92f)
+                    }
+                    drawPath(path, MaterialTheme.colorScheme.onSurface, style = Stroke(width = 2.5.dp.toPx()))
+                }
+            }
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    "Analytics",
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontSize = 25.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    "Your study activity",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp
+                )
+            }
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .size(42.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surface,
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                )
+            ) {
+                if (profileAvatar != null) {
+                    androidx.compose.foundation.Image(
+                        bitmap = profileAvatar.asImageBitmap(),
+                        contentDescription = "Profile",
+                        modifier = Modifier.fillMaxSize().clip(CircleShape)
+                    )
+                } else {
                     Box(contentAlignment = Alignment.Center) {
-                        Text("‹", color = MaterialTheme.colorScheme.onSurface, fontSize = 30.sp)
+                        Text("•", color = MaterialTheme.colorScheme.onSurface, fontSize = 25.sp)
                     }
                 }
-                Column {
-                    Text("Analytics", color = MaterialTheme.colorScheme.onBackground, fontSize = 22.sp)
-                    Text(
-                        "Your study activity",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp
+            }
+        }
+
+        if (loading && data.daily.isEmpty()) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+            }
+        } else {
+            AnimatedContent(
+                targetState = section,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .pointerInput(section) {
+                        detectHorizontalDragGestures(
+                            onDragEnd = {
+                                if (abs(pageDrag) > 90f) {
+                                    section = if (pageDrag < 0f) AnalyticsSection.Calendar else AnalyticsSection.Monthly
+                                }
+                                pageDrag = 0f
+                            },
+                            onHorizontalDrag = { _, amount -> pageDrag += amount }
+                        )
+                    },
+                transitionSpec = {
+                    val direction = if (targetState == AnalyticsSection.Calendar) 1 else -1
+                    (slideInHorizontally(
+                        animationSpec = tween(520, easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)),
+                        initialOffsetX = { it * direction }
+                    ) + fadeIn(tween(330))) togetherWith
+                        (slideOutHorizontally(
+                            animationSpec = tween(420, easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)),
+                            targetOffsetX = { -it * direction }
+                        ) + fadeOut(tween(250)))
+                },
+                label = "analytics-page-swipe"
+            ) { page ->
+                when (page) {
+                    AnalyticsSection.Monthly -> MonthlyAnalytics(
+                        snapshot = data,
+                        subjects = subjects,
+                        month = month,
+                        onMonthChanged = { month = it }
+                    )
+                    AnalyticsSection.Calendar -> CalendarAnalytics(
+                        snapshot = data,
+                        subjects = subjects,
+                        month = month,
+                        selectedDate = selectedDate,
+                        today = today,
+                        onMonthChanged = { next ->
+                            month = next
+                            selectedDate = next.atDay(1).coerceAtMost(today)
+                        },
+                        onDateSelected = { selectedDate = it }
                     )
                 }
             }
-            TextButton(onClick = onRefresh) { Text("Refresh") }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            AnalyticsTab("Monthly", section == AnalyticsSection.Monthly, Modifier.weight(1f)) {
-                section = AnalyticsSection.Monthly
-            }
-            AnalyticsTab("Calendar", section == AnalyticsSection.Calendar, Modifier.weight(1f)) {
-                month = YearMonth.from(selectedDate)
-                section = AnalyticsSection.Calendar
-            }
-        }
-
-        if (loading && snapshot.daily.isEmpty()) {
-            Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        } else if (error != null && snapshot.daily.isEmpty()) {
-            AnalyticsCard {
-                Text("Analytics couldn't load", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp)
-                Text(error, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
-                TextButton(onClick = onRefresh) { Text("Try again") }
-            }
-        } else if (section == AnalyticsSection.Monthly) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(month.format(DateTimeFormatter.ofPattern("MMMM yyyy")), color = MaterialTheme.colorScheme.onBackground, fontSize = 18.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = {
-                        month = month.minusMonths(1)
-                        selectedDate = month.atDay(1)
-                    }) { Text("‹") }
-                    TextButton(
-                        onClick = { month = month.plusMonths(1) },
-                        enabled = month < YearMonth.from(today)
-                    ) { Text("›") }
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                MetricCard("Study time", formatAnalyticsDuration(monthTotal), Modifier.weight(1f))
-                MetricCard("Days studied", "$daysStudied", Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                MetricCard("Daily average", formatAnalyticsDuration(average), Modifier.weight(1f))
-                MetricCard("Best day", formatAnalyticsDuration(bestDay), Modifier.weight(1f))
-            }
-            AnalyticsCard {
-                Text("Daily study time", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp)
-                Text(
-                    "Recorded time for each day of the month",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp
-                )
-                MonthlyBars(monthValues)
-            }
-            AnalyticsCard {
-                Text("Study activity this year", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp)
-                Text(
-                    "Each square represents one day",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp
-                )
-                YearHeatmap(displaySnapshot.daily, today)
-            }
-            AnalyticsCard {
-                Text("Subject breakdown", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp)
-                if (subjectTotals.isEmpty()) {
-                    Text("No subject time recorded this month.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
-                } else {
-                    subjectTotals.entries.sortedByDescending { it.value }.forEach { (name, duration) ->
-                        SubjectProgress(name, duration, maxSubject, subjects)
-                    }
-                }
-            }
-        } else {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(month.format(DateTimeFormatter.ofPattern("MMMM yyyy")), color = MaterialTheme.colorScheme.onBackground, fontSize = 18.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = {
-                        month = month.minusMonths(1)
-                        selectedDate = month.atDay(1)
-                    }) { Text("‹") }
-                    TextButton(
-                        onClick = {
-                            month = month.plusMonths(1)
-                            selectedDate = month.atDay(1)
-                        },
-                        enabled = month < YearMonth.from(today)
-                    ) { Text("›") }
-                }
-            }
-            AnalyticsCard {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    listOf("M", "T", "W", "T", "F", "S", "S").forEach {
-                        Text(it, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                    }
-                }
-                val offset = month.atDay(1).dayOfWeek.value - 1
-                val count = ((offset + month.lengthOfMonth() + 6) / 7) * 7
-                repeat(count / 7) { week ->
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        repeat(7) { weekday ->
-                            val day = week * 7 + weekday - offset + 1
-                            if (day in 1..month.lengthOfMonth()) {
-                                val date = month.atDay(day)
-                                val amount = displaySnapshot.daily[date.toString()] ?: 0L
-                                val isSelected = date == selectedDate
-                                val intensity = when {
-                                    amount <= 0L -> MaterialTheme.colorScheme.surfaceVariant
-                                    amount < 30 * 60 * 1000L -> Color(0xFFB8D5AE)
-                                    amount < 90 * 60 * 1000L -> Color(0xFF80B97A)
-                                    amount < 180 * 60 * 1000L -> Color(0xFF4F955C)
-                                    else -> Color(0xFF286C43)
-                                }
-                                Surface(
-                                    modifier = Modifier.weight(1f).height(42.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .clickable { selectedDate = date },
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else intensity
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(
-                                            "$day",
-                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else Color(0xFF243024),
-                                            fontSize = 13.sp
-                                        )
-                                    }
-                                }
-                            } else {
-                                Spacer(Modifier.weight(1f).height(42.dp))
-                            }
-                        }
-                    }
-                }
-            }
-            AnalyticsCard {
-                Text(selectedDate.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy")), color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp)
-                Text(formatAnalyticsDuration(selectedTotal), color = MaterialTheme.colorScheme.primary, fontSize = 25.sp)
-                Text("Subject breakdown", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
-                if (selectedSubjects.isEmpty()) {
-                    Text("No subjects recorded for this day.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
-                } else {
-                    selectedSubjects.forEach { (name, duration) ->
-                        SubjectProgress(name, duration, max(1L, selectedTotal), subjects)
-                    }
-                }
-                Text("Hourly activity", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
-                HourlyBars(selectedHours)
-            }
-            if (selectedTaskSnapshot != null || selectedDate.isBefore(today)) {
-                AnalyticsCard {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Tasks", color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp)
-                        if (selectedTaskSnapshot?.locked == true) {
-                            Text("Locked", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
-                        }
-                    }
-                    if (selectedTasks.isEmpty()) {
-                        Text(
-                            "No tasks recorded for this day.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 13.sp
-                        )
-                    } else {
-                        selectedTasks.forEach { task ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Text(
-                                    if (task.completed) "✓" else "○",
-                                    color = if (task.completed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 16.sp
-                                )
-                                Text(
-                                    task.text,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 13.sp
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if (snapshot.fromCache) {
-            Text(
-                "Offline · showing your last saved analytics.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.sp
-            )
-        }
-        if (snapshot.legacyImportPending) {
-            Text("Restoring older analytics data from the cloud archive.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
-        } else if (snapshot.mirrorPending) {
-            Text("Your analytics are saved. The JSON archive mirror will retry automatically.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
-        }
-        if (loading) {
-            Text("Refreshing…", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
-        }
-        if (error != null && snapshot.daily.isNotEmpty()) {
-            Text("Showing the last loaded analytics. Refresh failed: $error", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
-        }
-        Spacer(Modifier.height(20.dp))
-    }
-}
-
-@Composable
-private fun AnalyticsTab(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    Surface(
-        modifier = modifier.height(42.dp).clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(
-                label,
-                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 13.sp
-            )
-        }
-    }
-}
-
-@Composable
-private fun AnalyticsCard(content: @Composable ColumnScope.() -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 1.dp
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            content = content
+        AnalyticsSegmentedControl(
+            section = section,
+            onSelect = { section = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 12.dp, bottom = 88.dp)
         )
     }
 }
 
 @Composable
-private fun MetricCard(label: String, value: String, modifier: Modifier) {
+private fun AnalyticsSegmentedControl(
+    section: AnalyticsSection,
+    onSelect: (AnalyticsSection) -> Unit,
+    modifier: Modifier = Modifier
+) {
     Surface(
-        modifier = modifier.height(96.dp),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 1.dp
+        modifier = modifier.height(54.dp),
+        shape = RoundedCornerShape(28.dp),
+        color = Color(0xB82A2D33),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.11f)),
+        tonalElevation = 8.dp
     ) {
-        Column(
-            modifier = Modifier.padding(13.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+        Row(
+            modifier = Modifier.fillMaxSize().padding(5.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-            Text(value, color = MaterialTheme.colorScheme.onSurface, fontSize = 19.sp)
+            listOf(AnalyticsSection.Monthly, AnalyticsSection.Calendar).forEach { item ->
+                val selected = item == section
+                Surface(
+                    modifier = Modifier.weight(1f).fillMaxSize().noRippleClickable { onSelect(item) },
+                    shape = RoundedCornerShape(23.dp),
+                    color = if (selected) Color(0xFF4B405E) else Color.Transparent
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            if (item == AnalyticsSection.Monthly) "Monthly" else "Calendar",
+                            color = if (selected) Color(0xFFF1E8FF) else Color(0xFFB8BBC4),
+                            fontSize = 14.sp,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun MonthlyBars(values: List<Long>) {
-    val maximum = (values.maxOrNull() ?: 0L).coerceAtLeast(1L).toFloat()
-    val axis = MaterialTheme.colorScheme.onSurfaceVariant
-    val bar = MaterialTheme.colorScheme.primary
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Canvas(modifier = Modifier.fillMaxWidth().height(142.dp)) {
-            val slot = size.width / values.size.coerceAtLeast(1)
-            val barWidth = slot * 0.62f
-            val baseline = size.height - 2.dp.toPx()
-            values.forEachIndexed { index, amount ->
-                val height = (amount.toFloat() / maximum) * (size.height - 8.dp.toPx())
-                val x = index * slot + (slot - barWidth) / 2f
-                drawRoundRect(
-                    color = if (amount > 0L) bar else axis.copy(alpha = 0.12f),
-                    topLeft = androidx.compose.ui.geometry.Offset(x, baseline - height),
-                    size = androidx.compose.ui.geometry.Size(barWidth, height.coerceAtLeast(2.dp.toPx())),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx())
-                )
+private fun MonthlyAnalytics(
+    snapshot: StudyAnalyticsSnapshot,
+    subjects: List<StudySubject>,
+    month: YearMonth,
+    onMonthChanged: (YearMonth) -> Unit
+) {
+    val today = LocalDate.now()
+    val days = (1..month.lengthOfMonth()).map { month.atDay(it) }
+    val prefix = month.toString()
+    val values = days.map { snapshot.daily[it.toString()] ?: 0L }
+    val total = values.sum()
+    val studiedDays = values.count { it >= 60_000L }
+    val elapsedDays = if (month == YearMonth.from(today)) today.dayOfMonth else month.lengthOfMonth()
+    val dailyAverage = if (elapsedDays > 0) total / elapsedDays else 0L
+    val bestDay = values.maxOrNull() ?: 0L
+    val dailyScroll = rememberLazyListState()
+    LaunchedEffect(month, days.size) {
+        dailyScroll.scrollToItem(max(0, days.size - 7))
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(15.dp)
+    ) {
+        Text(
+            month.format(DateTimeFormatter.ofPattern("MMMM yyyy")),
+            color = MaterialTheme.colorScheme.onBackground,
+            fontSize = 21.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+        )
+
+        AnalyticsCard {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                MetricCell("Study time", formatAnalyticsDuration(total), Modifier.weight(1f))
+                MetricCell("Days studied", studiedDays.toString(), Modifier.weight(1f))
+            }
+            Surface(Modifier.fillMaxWidth().height(1.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)) {}
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                MetricCell("Daily average", formatAnalyticsDuration(dailyAverage), Modifier.weight(1f))
+                MetricCell("Best day", formatAnalyticsDuration(bestDay), Modifier.weight(1f))
             }
         }
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            listOf(1, 5, 10, 15, 20, 25, values.size).distinct().forEach {
-                Text("$it", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+
+        AnalyticsCard {
+            Text("Daily study time", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+            Text(
+                "Last 7 days · swipe back for earlier days",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp
+            )
+            val maxValue = values.maxOrNull()?.coerceAtLeast(60_000L) ?: 60_000L
+            LazyRow(
+                state = dailyScroll,
+                modifier = Modifier.fillMaxWidth().height(184.dp),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                itemsIndexed(days, key = { _, date -> date.toString() }) { index, date ->
+                    val amount = values[index]
+                    val target = (amount.toFloat() / maxValue.toFloat()).coerceIn(0f, 1f)
+                    val animated by animateFloatAsState(
+                        targetValue = target,
+                        animationSpec = tween(
+                            durationMillis = 540,
+                            delayMillis = index * 16,
+                            easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
+                        ),
+                        label = "daily-bar-$date"
+                    )
+                    Column(
+                        modifier = Modifier.width(34.dp).fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Bottom
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.58f)
+                                .height((132f * animated).coerceAtLeast(2f).dp)
+                                .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                                .background(if (amount > 0L) Color(0xFF9B82C7) else MaterialTheme.colorScheme.surfaceVariant)
+                        )
+                        Spacer(Modifier.height(7.dp))
+                        Text(
+                            if (date.dayOfMonth == 1) date.format(DateTimeFormatter.ofPattern("MMM")) else date.dayOfMonth.toString(),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 10.sp,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
+
+        AnalyticsCard {
+            Text("Yearly activity", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+            Text("Scrolls to the latest date automatically", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+            YearHeatmap(snapshot.daily, today)
+        }
+
+        val subjectTotals = linkedMapOf<String, Long>()
+        snapshot.dailySubjects.forEach { (date, valuesForDay) ->
+            if (date.startsWith(prefix)) {
+                valuesForDay.forEach { (name, duration) ->
+                    subjectTotals[name] = (subjectTotals[name] ?: 0L) + duration
+                }
+            }
+        }
+        if (subjectTotals.isNotEmpty()) {
+            AnalyticsCard {
+                Text("Subjects this month", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                PieBreakdown(subjectTotals, subjects, showLeaders = false)
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+    }
+}
+
+@Composable
+private fun CalendarAnalytics(
+    snapshot: StudyAnalyticsSnapshot,
+    subjects: List<StudySubject>,
+    month: YearMonth,
+    selectedDate: LocalDate,
+    today: LocalDate,
+    onMonthChanged: (YearMonth) -> Unit,
+    onDateSelected: (LocalDate) -> Unit
+) {
+    val key = selectedDate.toString()
+    val total = snapshot.daily[key] ?: 0L
+    val subjectTotals = snapshot.dailySubjects[key].orEmpty().filterValues { it > 0L }
+    val hourly = snapshot.dailyHours[key].orEmpty()
+    val taskSnapshot = snapshot.taskDays[key]
+    val taskRows = taskSnapshot?.tasks
+        ?: snapshot.tasks.filter { it.completedAt == key }.map { it.copy(completed = true) }
+    var monthDrag by remember(month) { mutableFloatStateOf(0f) }
+
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .pointerInput(month) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            if (monthDrag < -75f) onMonthChanged(month.plusMonths(1))
+                            else if (monthDrag > 75f) onMonthChanged(month.minusMonths(1))
+                            monthDrag = 0f
+                        },
+                        onHorizontalDrag = { _, delta -> monthDrag += delta }
+                    )
+                }
+        ) {
+            Text(
+                month.format(DateTimeFormatter.ofPattern("MMMM yyyy")),
+                color = MaterialTheme.colorScheme.onBackground,
+                fontSize = 21.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Text("Swipe left or right to change month", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+        }
+
+        AnalyticsCard {
+            CalendarGrid(
+                snapshot = snapshot,
+                month = month,
+                selectedDate = selectedDate,
+                today = today,
+                onDateSelected = onDateSelected
+            )
+        }
+
+        AnalyticsCard {
+            Text(
+                selectedDate.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy")),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp
+            )
+            Text(
+                formatAnalyticsDuration(total),
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 27.sp,
+                fontWeight = FontWeight.Medium
+            )
+            if (subjectTotals.isNotEmpty()) {
+                Text("Subject breakdown", color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp)
+                PieBreakdown(subjectTotals, subjects, showLeaders = true)
+            } else {
+                Text("No subjects recorded for this day.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+            }
+        }
+
+        AnalyticsCard {
+            Text("Hourly activity", color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp)
+            HourlyActivity(hourly)
+        }
+
+        if (taskSnapshot != null || selectedDate.isBefore(today)) {
+            AnalyticsCard {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Tasks", color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp)
+                    if (taskSnapshot?.locked == true) {
+                        Text("Locked", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                    }
+                }
+                if (taskRows.isEmpty()) {
+                    Text("No tasks recorded for this day.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                } else {
+                    taskRows.forEach { task ->
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(if (task.completed) "✓" else "○", color = if (task.completed) Color(0xFF85C89B) else MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(task.text, color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+    }
+}
+
+@Composable
+private fun CalendarGrid(
+    snapshot: StudyAnalyticsSnapshot,
+    month: YearMonth,
+    selectedDate: LocalDate,
+    today: LocalDate,
+    onDateSelected: (LocalDate) -> Unit
+) {
+    val startOffset = month.atDay(1).dayOfWeek.value - 1
+    val count = ((startOffset + month.lengthOfMonth() + 6) / 7) * 7
+    val dates = (0 until count).map { index ->
+        val day = index - startOffset + 1
+        if (day in 1..month.lengthOfMonth()) month.atDay(day) else null
+    }
+    val maxDay = snapshot.daily.filterKeys { it.startsWith(month.toString()) }.values.maxOrNull()?.coerceAtLeast(1L) ?: 1L
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth()) {
+            listOf("M", "T", "W", "T", "F", "S", "S").forEach {
+                Text(it, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, textAlign = TextAlign.Center)
+            }
+        }
+        dates.chunked(7).forEachIndexed { week, weekDates ->
+            Row(Modifier.fillMaxWidth()) {
+                weekDates.forEachIndexed { column, date ->
+                    if (date == null || date > today) {
+                        Spacer(Modifier.weight(1f).height(58.dp))
+                    } else {
+                        val amount = snapshot.daily[date.toString()] ?: 0L
+                        val selected = date == selectedDate
+                        val level = when {
+                            amount <= 0L -> 0
+                            amount <= maxDay / 4L -> 1
+                            amount <= maxDay / 2L -> 2
+                            amount <= maxDay * 3L / 4L -> 3
+                            else -> 4
+                        }
+                        val background = when (level) {
+                            0 -> Color.Transparent
+                            1 -> Color(0xFF2E473D)
+                            2 -> Color(0xFF316C52)
+                            3 -> Color(0xFF3F9469)
+                            else -> Color(0xFF62B982)
+                        }
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(58.dp)
+                                .clip(RoundedCornerShape(11.dp))
+                                .background(if (selected) Color(0xFF49405B) else background.copy(alpha = if (level == 0) 0f else 0.4f))
+                                .noRippleClickable { onDateSelected(date) }
+                                .padding(top = 7.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                date.dayOfMonth.toString(),
+                                color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                fontSize = 13.sp,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                            )
+                            if (amount >= 60_000L) {
+                                Text(
+                                    formatHhMm(amount),
+                                    color = if (selected) Color(0xFFE8DFFF) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 8.sp,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -490,8 +628,12 @@ private fun YearHeatmap(daily: Map<String, Long>, today: LocalDate) {
     val weeks = (totalDays + 6) / 7
     val yearPrefix = today.year.toString() + "-"
     val maximum = daily.filterKeys { it.startsWith(yearPrefix) }.values.maxOrNull()?.coerceAtLeast(1L) ?: 1L
+    val scrollState = rememberScrollState()
+    LaunchedEffect(today, daily.size) {
+        scrollState.scrollTo(scrollState.maxValue)
+    }
     Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxWidth().horizontalScroll(scrollState),
         horizontalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         repeat(weeks) { week ->
@@ -501,15 +643,13 @@ private fun YearHeatmap(daily: Map<String, Long>, today: LocalDate) {
                     if (date <= today) {
                         val amount = daily[date.toString()] ?: 0L
                         val shade = when {
-                            amount <= 0L -> MaterialTheme.colorScheme.surfaceVariant
-                            amount <= maximum / 4L -> Color(0xFFD6E8CF)
-                            amount <= maximum / 2L -> Color(0xFFA8D09A)
-                            amount <= maximum * 3L / 4L -> Color(0xFF70AD72)
-                            else -> Color(0xFF347E50)
+                            amount <= 0L -> Color(0xFF30343B)
+                            amount <= maximum / 4L -> Color(0xFF355243)
+                            amount <= maximum / 2L -> Color(0xFF477E60)
+                            amount <= maximum * 3L / 4L -> Color(0xFF67A979)
+                            else -> Color(0xFF8CCB98)
                         }
-                        Box(
-                            Modifier.size(11.dp).clip(RoundedCornerShape(3.dp)).background(shade)
-                        )
+                        Box(Modifier.size(11.dp).clip(RoundedCornerShape(3.dp)).background(shade))
                     } else {
                         Spacer(Modifier.size(11.dp))
                     }
@@ -517,65 +657,153 @@ private fun YearHeatmap(daily: Map<String, Long>, today: LocalDate) {
             }
         }
     }
-}
-
-@Composable
-private fun SubjectProgress(
-    name: String,
-    duration: Long,
-    maximum: Long,
-    subjects: List<StudySubject>
-) {
-    val colorIndex = subjects.firstOrNull { it.name == name }?.color ?: 0
-    val color = Color(StudySyncManager.subjectPalette.getOrElse(colorIndex) { StudySyncManager.subjectPalette[0] })
-    val trackColor = MaterialTheme.colorScheme.surfaceVariant
-    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(name, color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
-            Text(formatAnalyticsDuration(duration), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-        }
-        Canvas(Modifier.fillMaxWidth().height(8.dp)) {
-            drawRoundRect(
-                trackColor,
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2f)
-            )
-            drawRoundRect(
-                color,
-                size = androidx.compose.ui.geometry.Size(size.width * (duration.toFloat() / maximum.toFloat()).coerceIn(0f, 1f), size.height),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2f)
-            )
-        }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text("Jan", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp)
+        Text(today.format(DateTimeFormatter.ofPattern("MMM d")), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp)
     }
 }
 
 @Composable
-private fun HourlyBars(hours: Map<Int, Long>) {
+private fun PieBreakdown(
+    totals: Map<String, Long>,
+    subjects: List<StudySubject>,
+    showLeaders: Boolean
+) {
+    val entries = totals.entries.filter { it.value > 0L }.sortedByDescending { it.value }
+    val total = entries.sumOf { it.value }.coerceAtLeast(1L)
+    val colorFor: (String) -> Color = { name ->
+        val index = subjects.firstOrNull { it.name == name }?.color ?: 0
+        Color(StudySyncManager.subjectPalette.getOrElse(index) { StudySyncManager.subjectPalette[0] })
+    }
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Canvas(Modifier.size(if (showLeaders) 152.dp else 132.dp)) {
+            var start = -90f
+            entries.forEachIndexed { index, entry ->
+                val sweep = entry.value.toFloat() / total.toFloat() * 360f
+                val colour = colorFor(entry.key)
+                drawArc(colour, start, sweep, useCenter = true)
+                if (showLeaders) {
+                    val mid = Math.toRadians((start + sweep / 2f).toDouble())
+                    val center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f)
+                    val outer = size.minDimension * 0.47f
+                    val end = androidx.compose.ui.geometry.Offset(
+                        center.x + cos(mid).toFloat() * outer,
+                        center.y + sin(mid).toFloat() * outer
+                    )
+                    val elbow = androidx.compose.ui.geometry.Offset(
+                        center.x + cos(mid).toFloat() * outer * 1.1f,
+                        center.y + sin(mid).toFloat() * outer * 1.1f
+                    )
+                    drawLine(Color(0xFFB7B0C6), end, elbow, strokeWidth = 1.5.dp.toPx())
+                }
+                start += sweep
+            }
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            entries.take(8).forEach { entry ->
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(colorFor(entry.key)))
+                    Column(Modifier.weight(1f)) {
+                        Text(entry.key, color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp, maxLines = 1)
+                        Text(formatHhMm(entry.value), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+                    }
+                }
+            }
+        }
+    }
+    if (showLeaders && entries.size > 1) {
+        Text(
+            "Subject sections are linked to the legend by matching colours.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 9.sp
+        )
+    }
+}
+
+@Composable
+private fun HourlyActivity(hours: Map<Int, Long>) {
     val maximum = (hours.values.maxOrNull() ?: 0L).coerceAtLeast(1L).toFloat()
     Row(
-        modifier = Modifier.fillMaxWidth().height(104.dp),
+        modifier = Modifier.fillMaxWidth().height(132.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.Bottom
     ) {
         (0..23).forEach { hour ->
             val amount = hours[hour] ?: 0L
-            val height = if (amount <= 0L) 3.dp else (amount / maximum * 88f).dp.coerceAtLeast(4.dp)
+            val target = if (amount <= 0L) 0.02f else (amount / maximum).coerceIn(0.03f, 1f)
+            val animated by animateFloatAsState(
+                targetValue = target,
+                animationSpec = tween(
+                    480,
+                    delayMillis = hour * 16,
+                    easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
+                ),
+                label = "hour-bar-$hour"
+            )
             Box(
-                modifier = Modifier.weight(1f).height(height)
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .height((98f * animated).dp)
                     .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
-                    .background(if (amount > 0L) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                    .background(if (amount > 0L) Color(0xFF9B82C7) else MaterialTheme.colorScheme.surfaceVariant)
             )
         }
     }
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         listOf("00:00", "06:00", "12:00", "18:00", "23:00").forEach {
             Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp)
         }
     }
 }
 
+@Composable
+private fun AnalyticsCard(content: @Composable ColumnScope.() -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = Color(0xFF22252B),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.035f)),
+        tonalElevation = 2.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(15.dp),
+            verticalArrangement = Arrangement.spacedBy(11.dp),
+            content = content
+        )
+    }
+}
+
+@Composable
+private fun MetricCell(label: String, value: String, modifier: Modifier) {
+    Column(
+        modifier = modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(11.dp)
+    ) {
+        Text(label, color = Color(0xFFAEB3BE), fontSize = 11.sp)
+        Text(value, color = Color(0xFFF4F4F6), fontSize = 21.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
 private fun formatAnalyticsDuration(milliseconds: Long): String {
-    val minutes = (milliseconds.coerceAtLeast(0L) / 60_000L)
+    val minutes = milliseconds.coerceAtLeast(0L) / 60_000L
     val hours = minutes / 60L
     val remaining = minutes % 60L
     return if (hours > 0L) "${hours}h ${remaining}m" else "${remaining}m"
+}
+
+private fun formatHhMm(milliseconds: Long): String {
+    val minutes = milliseconds.coerceAtLeast(0L) / 60_000L
+    return "${(minutes / 60L).toString().padStart(2, '0')}:${(minutes % 60L).toString().padStart(2, '0')}"
 }
