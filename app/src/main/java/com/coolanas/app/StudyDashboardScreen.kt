@@ -704,13 +704,13 @@ fun StudyDashboardScreen(
                             color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
                         ) {}
                         Spacer(Modifier.height(10.dp))
-                        DropdownMenuItem(
-                            text = { Text("Sign out") },
-                            onClick = {
+                        Text(
+                            "Sign out",
+                            modifier = Modifier.fillMaxWidth().noRippleClickable {
                                 accountMenuOpen = false
                                 onSignOut()
-                            },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 7.dp)
+                            }.padding(horizontal = 10.dp, vertical = 10.dp),
+                            color = MaterialTheme.colorScheme.error
                         )
                     }
                 }
@@ -905,13 +905,14 @@ fun StudyDashboardScreen(
                             expanded = subjectMenu == subject.name,
                             onDismissRequest = { subjectMenu = null }
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("Rename") },
-                                onClick = {
+                            Text(
+                                "Rename",
+                                modifier = Modifier.fillMaxWidth().noRippleClickable {
                                     subjectMenu = null
                                     inlineEditingSubject = subject.name
                                     inlineSubjectDraft = subject.name
-                                }
+                                }.padding(horizontal = 14.dp, vertical = 11.dp),
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 "Colour",
@@ -944,12 +945,13 @@ fun StudyDashboardScreen(
                                     ) {}
                                 }
                             }
-                            DropdownMenuItem(
-                                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                                onClick = {
+                            Text(
+                                "Delete",
+                                modifier = Modifier.fillMaxWidth().noRippleClickable {
                                     saveSubjectChanges(subjects.filterNot { it.name == subject.name })
                                     subjectMenu = null
-                                }
+                                }.padding(horizontal = 14.dp, vertical = 11.dp),
+                                color = MaterialTheme.colorScheme.error
                             )
                         }
                     }
