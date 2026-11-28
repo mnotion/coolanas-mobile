@@ -14,6 +14,7 @@ import androidx.work.Data
 import androidx.work.WorkManager
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.functions.functions
+import io.github.jan.supabase.postgrest.postgrest
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.Headers
@@ -92,6 +93,9 @@ data class AccountStopwatchActionResult(
 private data class AccountStopwatchTerminalRow(
     @SerialName("elapsed_ms") val elapsedMs: Long,
     @SerialName("started_at") val startedAt: String? = null,
+    @SerialName("started_by") val startedBy: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null,
+    @SerialName("updated_by") val updatedBy: String? = null,
     val version: Long,
     @SerialName("server_now") val serverNow: String,
     @SerialName("previous_started_at") val previousStartedAt: String? = null,
