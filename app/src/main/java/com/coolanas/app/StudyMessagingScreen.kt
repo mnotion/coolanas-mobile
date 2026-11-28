@@ -123,6 +123,7 @@ private data class CoolanasDmRow(
         }
 }
 
+@Composable
 private fun messagingFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedTextColor = Color(0xFFF3F2F7),
     unfocusedTextColor = Color(0xFFF3F2F7),
