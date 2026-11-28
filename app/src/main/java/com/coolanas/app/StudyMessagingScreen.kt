@@ -52,6 +52,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import java.time.Instant
@@ -279,7 +280,7 @@ fun StudyMessagingScreen(userId: String) {
                                                 buildJsonObject { put("p_recipient_id", JsonPrimitive(person.userId)) }
                                             )
                                             search = ""
-                                            friendListVersion = !friendListVersion
+                                            friendListVersion++
                                         } catch (exception: Exception) {
                                             error = exception.message ?: "Could not send friend request."
                                         }
