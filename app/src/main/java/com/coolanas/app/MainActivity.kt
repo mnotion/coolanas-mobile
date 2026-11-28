@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -187,29 +187,36 @@ class MainActivity : ComponentActivity() {
                                 color = MaterialTheme.colorScheme.primary,
                             )
                             Spacer(Modifier.height(36.dp))
-                            Button(
-                                onClick = {
-                                    if (!isStartingLogin) {
-                                        isStartingLogin = true
-                                        errorLog = null
-                                        scope.launch {
-                                            try {
-                                                SupabaseClientProvider.client.auth.signInWith(Google)
-                                            } catch (error: Exception) {
-                                                reportAuthError(
-                                                    "Could not start Google sign-in: ${error.message ?: error::class.java.simpleName}",
-                                                    error,
-                                                )
-                                            } finally {
-                                                isStartingLogin = false
+                            Surface(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .noRippleClickable {
+                                        if (!isStartingLogin) {
+                                            isStartingLogin = true
+                                            errorLog = null
+                                            scope.launch {
+                                                try {
+                                                    SupabaseClientProvider.client.auth.signInWith(Google)
+                                                } catch (error: Exception) {
+                                                    reportAuthError(
+                                                        "Could not start Google sign-in: ${error.message ?: error::class.java.simpleName}",
+                                                        error,
+                                                    )
+                                                } finally {
+                                                    isStartingLogin = false
+                                                }
                                             }
                                         }
-                                    }
-                                },
-                                enabled = !isStartingLogin,
-                                shape = RoundedCornerShape(12.dp),
+                                    },
+                                color = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                                shape = RoundedCornerShape(12.dp)
                             ) {
-                                Text(if (isStartingLogin) "Opening Google…" else "Continue with Google")
+                                Text(
+                                    if (isStartingLogin) "Opening Google…" else "Continue with Google",
+                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
                             }
 
                             if (errorLog != null) {
