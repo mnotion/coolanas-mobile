@@ -130,6 +130,7 @@ fun StudyMessagingScreen(userId: String) {
     var searchResults by remember(userId) { mutableStateOf<List<CoolanasFriendSearchRow>>(emptyList()) }
     var selectedFriend by remember(userId) { mutableStateOf<CoolanasFriendRow?>(null) }
     var conversationId by remember(userId) { mutableStateOf<String?>(null) }
+    var conversationOpening by remember(userId) { mutableStateOf(false) }
     var messages by remember(userId) { mutableStateOf<List<CoolanasDmRow>>(emptyList()) }
     var draft by remember(userId) { mutableStateOf("") }
     var loading by remember(userId) { mutableStateOf(true) }
@@ -256,8 +257,6 @@ fun StudyMessagingScreen(userId: String) {
                 }
                 if (row.senderId != userId) {
                     markConversationRead(activeConversation, userId)
-                refreshUnreadCounts()
-            refreshUnreadCounts()
                     refreshUnreadCounts()
                 }
             }
@@ -400,6 +399,10 @@ fun StudyMessagingScreen(userId: String) {
                                     modifier = Modifier.noRippleClickable {
                                         scope.launch {
                                             selectedFriend = friend
+                                            conversationId = null
+                                            conversationOpening = true
+                                            messages = emptyList()
+                                            remoteTyping = false
                                             draft = ""
                                             error = null
                                             try {
@@ -413,6 +416,8 @@ fun StudyMessagingScreen(userId: String) {
                                                 refreshUnreadCounts()
                                             } catch (exception: Exception) {
                                                 error = exception.message ?: "Could not open this conversation."
+                                            } finally {
+                                                conversationOpening = false
                                             }
                                         }
                                     },
@@ -692,7 +697,12 @@ fun StudyMessagingScreen(userId: String) {
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
-                        if (loading) "Loading friends…" else "Choose a friend to start messaging.",
+                        when {
+                            conversationOpening -> "Opening conversation…"
+                            selectedFriend != null -> "Could not open this conversation. Select the friend again to retry."
+                            loading -> "Loading friends…"
+                            else -> "Choose a friend to start messaging."
+                        },
                         color = Color(0xFFB9BEC8),
                         fontSize = 13.sp,
                         textAlign = TextAlign.Center
