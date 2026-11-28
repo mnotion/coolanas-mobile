@@ -995,16 +995,24 @@ fun StudyDashboardScreen(
                 }
             }
 
-        CoolanasBottomNavigation(
-            activePage = activePage,
-            onSelect = { page ->
-                activePage = page
-                accountMenuOpen = false
-                subjectMenu = null
-                inlineEditingSubject?.let { finishInlineSubjectEdit(it) }
-            },
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
-        )
+        AnimatedVisibility(
+            visible = !(activePage == DashboardPage.Timer && timerRunning),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
+            enter = fadeIn(tween(420, easing = FastOutSlowInEasing)) +
+                slideInVertically(initialOffsetY = { it / 2 }, animationSpec = tween(520, easing = FastOutSlowInEasing)),
+            exit = fadeOut(tween(260, easing = FastOutSlowInEasing)) +
+                slideOutVertically(targetOffsetY = { it / 3 }, animationSpec = tween(260, easing = FastOutSlowInEasing))
+        ) {
+            CoolanasBottomNavigation(
+                activePage = activePage,
+                onSelect = { page ->
+                    activePage = page
+                    accountMenuOpen = false
+                    subjectMenu = null
+                    inlineEditingSubject?.let { finishInlineSubjectEdit(it) }
+                }
+            )
+        }
     }
 }
 
