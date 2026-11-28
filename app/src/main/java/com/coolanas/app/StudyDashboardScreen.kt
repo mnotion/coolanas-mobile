@@ -199,11 +199,11 @@ fun StudyDashboardScreen(
         var lastCheckpointAt = if (timer.startedAtMs == null) {
             System.currentTimeMillis()
         } else {
-            System.currentTimeMillis() - 10_000L
+            System.currentTimeMillis() - 5_000L
         }
         while (true) {
             now = System.currentTimeMillis()
-            if (timer.startedAtMs != null && now - lastCheckpointAt >= 10_000L) {
+            if (timer.startedAtMs != null && now - lastCheckpointAt >= 5_000L) {
                 val checkpointTime = now
                 withContext(Dispatchers.IO) {
                     repository.checkpointTimer(userId, checkpointTime)
