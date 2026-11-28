@@ -384,6 +384,9 @@ fun StudyDashboardScreen(
             StudyAnalyticsScreen(
                 snapshot = analyticsSnapshot,
                 subjects = subjects,
+                timer = timer,
+                serverNowMillis = now + serverClockOffsetMs,
+                activeSubject = timer.runningSubject ?: selectedSubject ?: "Unassigned",
                 darkMode = darkMode,
                 loading = analyticsLoading,
                 error = analyticsError,
