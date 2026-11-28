@@ -10,10 +10,12 @@ A native Android companion for Coolanas, built with Kotlin and Jetpack Compose. 
 - Subject selection and account-synced subject colours.
 - Completed study-time analytics sent to the existing `coolanas-files-b2` `analytics_sync` action, using the database's `previous_started_at` and `server_now` values for session boundaries.
 - Offline queue and retry for completed analytics records.
-- Native Monthly and Calendar analytics, including daily totals, yearly activity, subject breakdowns, hourly activity, historical task snapshots, and a temporary preview of the current running interval.
+- Native Monthly and Calendar analytics, including daily totals, yearly activity, subject pie charts, hourly activity, historical task snapshots, and a preview of the running interval.
+- Native one-to-one messaging using the website's friend, conversation, message and read-receipt backend; includes friend search/requests, live messages, typing indicators and unread friend badges.
+- Android message notifications while the app's Realtime connection is alive, plus a persistent stopwatch chronometer notification and a first-launch notification permission prompt.
 - Account-synced appearance and profile avatar.
 
-The stopwatch terminal and analytics are separate systems. The terminal stores the current account stopwatch state. Analytics store completed intervals for reporting.
+The stopwatch terminal and analytics are separate systems. The terminal stores the current account stopwatch state. Analytics store completed intervals for reporting. Direct-message payloads use the website's current v0 plaintext format; this Android implementation does not claim end-to-end encryption. Message notifications use an app-side Supabase Realtime subscription, not Firebase Cloud Messaging, so delivery is not guaranteed after Android terminates the app process.
 
 ## Technology
 
@@ -68,7 +70,7 @@ app/src/main/java/com/coolanas/app/
   SupabaseClientProvider.kt   Shared Supabase Auth, Functions, PostgREST, Realtime
   ui/theme/Theme.kt           Material 3 light/dark theme
 app/src/main/res/             Android manifest, app label, theme, and launcher assets
-app/src/androidTest/          Emulator/device Compose launch smoke test
+app/src/androidTest/          Emulator Compose launch smoke test
 gradle/libs.versions.toml     Central dependency and plugin versions
 ```
 
