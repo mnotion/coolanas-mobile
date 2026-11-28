@@ -996,18 +996,16 @@ fun StudyDashboardScreen(
                 }
             }
 
-        if (!timerRunning || activePage != DashboardPage.Timer) {
-            CoolanasBottomNavigation(
-                activePage = activePage,
-                onSelect = { page ->
-                    activePage = page
-                    accountMenuOpen = false
-                    subjectMenu = null
-                    inlineEditingSubject?.let { finishInlineSubjectEdit(it) }
-                },
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
-            )
-        }
+        CoolanasBottomNavigation(
+            activePage = activePage,
+            onSelect = { page ->
+                activePage = page
+                accountMenuOpen = false
+                subjectMenu = null
+                inlineEditingSubject?.let { finishInlineSubjectEdit(it) }
+            },
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
+        )
     }
 }
 
