@@ -85,6 +85,7 @@ import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.max
 
 data class CoolanasAccountProfile(
@@ -260,32 +261,35 @@ fun StudyDashboardScreen(
                 }
             }
         }
-        try {
-            // Do not block the polling fallback on WebSocket connection establishment.
+        val subscription = launch {
             try {
-                channel.subscribe(blockUntilSubscribed = false)
-            } catch (error: Exception) {
-                stopwatchError = error.message ?: "Live stopwatch updates are unavailable; periodic refresh will continue."
-            }
-
-            suspend fun refreshTerminal() {
-                val latest = withContext(Dispatchers.IO) {
-                    repository.accountStopwatchAction(userId, "get")
+                withTimeoutOrNull(8_000L) {
+                    channel.subscribe(blockUntilSubscribed = false)
                 }
-                timer = latest.timer
-                serverClockOffsetMs = latest.serverClockOffsetMs
-                stopwatchReady = true
-                stopwatchError = null
+            } catch (error: Exception) {
+                stopwatchError = error.message ?: "Live updates are unavailable; periodic refresh will continue."
             }
-
-            refreshTerminal()
+        }
+        suspend fun refreshTerminal() {
+            val latest = withContext(Dispatchers.IO) {
+                repository.accountStopwatchAction(userId, "get")
+            }
+            timer = latest.timer
+            serverClockOffsetMs = latest.serverClockOffsetMs
+            stopwatchReady = true
+            stopwatchError = null
+        }
+        try {
             while (true) {
+                try {
+                    refreshTerminal()
+                } catch (error: Exception) {
+                    stopwatchError = error.message ?: "Your account stopwatch could not refresh."
+                }
                 delay(15_000L)
-                refreshTerminal()
             }
-        } catch (error: Exception) {
-            stopwatchError = error.message ?: "Your account stopwatch could not refresh."
         } finally {
+            subscription.cancel()
             observer.cancel()
             SupabaseClientProvider.client.realtime.removeChannel(channel)
         }
