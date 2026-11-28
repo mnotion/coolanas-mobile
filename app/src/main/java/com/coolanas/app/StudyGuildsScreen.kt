@@ -112,7 +112,7 @@ private object NativeGuildRepository {
         client.postgrest.from("coolanas_guild_messages").select {
             filter { eq("guild_id", guildId) }
             order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
-            limit(pageSize)
+            limit(pageSize.toLong())
         }.decodeList<GuildMessageData>().reversed()
     }
 
