@@ -9,6 +9,12 @@ import android.os.IBinder
 import android.os.SystemClock
 
 class StudyTimerNotificationService : Service() {
+    companion object {
+        @Volatile
+        var isRunningForeground: Boolean = false
+            private set
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -16,6 +22,7 @@ class StudyTimerNotificationService : Service() {
         when (intent?.action) {
             ACTION_STOP -> {
                 stopForeground(STOP_FOREGROUND_REMOVE)
+                isRunningForeground = false
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -26,6 +33,7 @@ class StudyTimerNotificationService : Service() {
                     CoolanasNotifications.TIMER_NOTIFICATION_ID,
                     buildTimerNotification(elapsed, subject)
                 )
+                isRunningForeground = true
             }
             else -> {
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -34,6 +42,11 @@ class StudyTimerNotificationService : Service() {
             }
         }
         return START_NOT_STICKY
+    }
+
+    override fun onDestroy() {
+        isRunningForeground = false
+        super.onDestroy()
     }
 
     private fun buildTimerNotification(elapsedMs: Long, subject: String): Notification {
@@ -79,6 +92,7 @@ class StudyTimerNotificationService : Service() {
         }
 
         fun hide(context: android.content.Context) {
+            isRunningForeground = false
             context.stopService(Intent(context, StudyTimerNotificationService::class.java))
         }
     }
