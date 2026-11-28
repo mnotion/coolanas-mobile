@@ -27,6 +27,16 @@ jobs:
         run: chmod +x ./gradlew
       - name: Build debug APK
         run: ./gradlew --no-daemon :app:assembleDebug
+      - name: Run emulator launch smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-audio -no-boot-anim
+          script: ./gradlew --no-daemon :app:connectedDebugAndroidTest
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
