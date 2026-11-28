@@ -1,6 +1,24 @@
 package com.coolanas.app
 
 import android.graphics.Bitmap
+import io.github.jan.supabase.realtime.decodeRecord
+import io.github.jan.supabase.postgrest.postgrest
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.AnimatedContent
+import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -94,18 +112,34 @@ data class CoolanasAccountProfile(
     val googleAvatarUrl: String? = null
 )
 
+@Serializable
+private data class CoolanasNotificationDmRow(
+    val id: String,
+    @SerialName("sender_id") val senderId: String,
+    val ciphertext: JsonObject
+)
+
+@Serializable
+private data class CoolanasNotificationFriend(
+    @SerialName("friend_id") val friendId: String,
+    val username: String
+)
+
+private enum class DashboardPage { Timer, Analytics, Messages }
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun StudyDashboardScreen(
     userId: String,
     repository: StudySyncManager,
     syncVersion: Int,
-    darkMode: Boolean,
     accountProfile: CoolanasAccountProfile,
-    onThemeChanged: (Boolean) -> Unit,
+    notificationNavigationTrigger: Int,
     onSignOut: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val appContext = LocalContext.current.applicationContext
+    val darkMode = true
     val cached = remember(userId) { repository.cachedSubjects(userId) }
     var subjects by remember(userId) {
         mutableStateOf(cached ?: StudySyncManager.defaultSubjects)
@@ -124,13 +158,13 @@ fun StudyDashboardScreen(
     var entryVisible by remember(userId) { mutableStateOf(false) }
     var accountMenuOpen by remember(userId) { mutableStateOf(false) }
     var subjectMenu by remember(userId) { mutableStateOf<String?>(null) }
-    var editorSubject by remember(userId) { mutableStateOf<StudySubject?>(null) }
-    var showSubjectEditor by remember(userId) { mutableStateOf(false) }
-    var showAnalytics by remember(userId) { mutableStateOf(false) }
+    var inlineEditingSubject by remember(userId) { mutableStateOf<String?>(null) }
+    val inlineSubjectFocusRequester = remember { FocusRequester() }
+    var activePage by remember(userId) { mutableStateOf(DashboardPage.Timer) }
+    val showAnalytics = activePage == DashboardPage.Analytics
+    val showMessages = activePage == DashboardPage.Messages
     var analyticsSnapshot by remember(userId) { mutableStateOf(StudyAnalyticsSnapshot()) }
     var analyticsLoading by remember(userId) { mutableStateOf(false) }
-    var analyticsError by remember(userId) { mutableStateOf<String?>(null) }
-    var analyticsRefreshVersion by remember(userId) { mutableLongStateOf(0L) }
 
     val timerRunning = timer.startedAtMs != null
     val timerPaused = !timerRunning && timer.elapsedMs > 0L
@@ -176,13 +210,13 @@ fun StudyDashboardScreen(
         entryVisible = false
         delay(65L)
         entryVisible = true
-        onThemeChanged(repository.cachedTheme(userId) == "dark")
         try {
             val terminal = withContext(Dispatchers.IO) {
                 repository.accountStopwatchAction(userId, "get")
             }
             timer = terminal.timer
             serverClockOffsetMs = terminal.serverClockOffsetMs
+            updateTimerNotification(terminal.timer, terminal.serverClockOffsetMs)
             stopwatchReady = true
             stopwatchError = null
         } catch (error: Exception) {
@@ -195,8 +229,6 @@ fun StudyDashboardScreen(
             selectedSubject = null
             repository.selectSubject(userId, null)
         }
-        val cloudDarkMode = withContext(Dispatchers.IO) { repository.loadTheme(userId) }
-        onThemeChanged(cloudDarkMode)
         avatar = withContext(Dispatchers.IO) {
             repository.loadProfileAvatar(userId, accountProfile.googleAvatarUrl)
         }
@@ -211,6 +243,7 @@ fun StudyDashboardScreen(
                 }
                 timer = terminal.timer
                 serverClockOffsetMs = terminal.serverClockOffsetMs
+                updateTimerNotification(terminal.timer, terminal.serverClockOffsetMs)
                 stopwatchReady = true
                 stopwatchError = null
             } catch (error: Exception) {
@@ -219,8 +252,6 @@ fun StudyDashboardScreen(
             val loadedSubjects = withContext(Dispatchers.IO) { repository.loadSubjects(userId) }
             subjects = loadedSubjects.subjects
             subjectsEditable = loadedSubjects.editable
-            val cloudDarkMode = withContext(Dispatchers.IO) { repository.loadTheme(userId) }
-            onThemeChanged(cloudDarkMode)
             avatar = withContext(Dispatchers.IO) {
                 repository.loadProfileAvatar(userId, accountProfile.googleAvatarUrl)
             }
@@ -254,6 +285,7 @@ fun StudyDashboardScreen(
                     }
                     timer = latest.timer
                     serverClockOffsetMs = latest.serverClockOffsetMs
+                    updateTimerNotification(latest.timer, latest.serverClockOffsetMs)
                     stopwatchReady = true
                     stopwatchError = null
                 } catch (error: Exception) {
@@ -276,6 +308,7 @@ fun StudyDashboardScreen(
             }
             timer = latest.timer
             serverClockOffsetMs = latest.serverClockOffsetMs
+            updateTimerNotification(latest.timer, latest.serverClockOffsetMs)
             stopwatchReady = true
             stopwatchError = null
         }
@@ -295,22 +328,84 @@ fun StudyDashboardScreen(
         }
     }
 
-    LaunchedEffect(showAnalytics, userId, syncVersion, analyticsRefreshVersion) {
+    LaunchedEffect(showAnalytics, userId, syncVersion) {
         if (showAnalytics) {
             while (true) {
                 analyticsLoading = analyticsSnapshot.daily.isEmpty()
-                analyticsError = null
                 try {
                     analyticsSnapshot = withContext(Dispatchers.IO) {
                         repository.loadAnalytics(userId)
                     }
                 } catch (error: Exception) {
-                    analyticsError = error.message ?: "Could not load your analytics."
                 } finally {
                     analyticsLoading = false
                 }
                 delay(15_000L)
             }
+        }
+    }
+
+    fun updateTimerNotification(state: StudyTimerState, clockOffsetMs: Long) {
+        if (state.startedAtMs != null) {
+            val elapsed = state.elapsedAt(System.currentTimeMillis() + clockOffsetMs)
+            StudyTimerNotificationService.show(
+                appContext,
+                elapsed,
+                state.runningSubject ?: selectedSubject ?: "Studying"
+            )
+        } else {
+            StudyTimerNotificationService.hide(appContext)
+        }
+    }
+
+    LaunchedEffect(notificationNavigationTrigger) {
+        if (notificationNavigationTrigger > 0) activePage = DashboardPage.Messages
+    }
+
+    LaunchedEffect(userId) {
+        val knownNames = mutableMapOf<String, String>()
+        val channel = SupabaseClientProvider.client.realtime.channel("coolanas-mobile-message-notifications-$userId")
+        val incoming = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
+            table = "coolanas_dm_messages"
+        }
+        val observer = launch {
+            incoming.collect { action ->
+                val row = runCatching { action.decodeRecord<CoolanasNotificationDmRow>() }.getOrNull()
+                    ?: return@collect
+                if (row.senderId == userId || CoolanasAppRuntime.isForeground) return@collect
+                if (!CoolanasNotifications.notificationsAllowed(appContext)) return@collect
+                val body = if (row.ciphertext["v"]?.jsonPrimitive?.contentOrNull == "0") {
+                    row.ciphertext["plaintext"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                } else {
+                    "You received a message."
+                }
+                val sender = knownNames[row.senderId] ?: try {
+                    val friends = withContext(Dispatchers.IO) {
+                        SupabaseClientProvider.client.postgrest.rpc("coolanas_friend_list")
+                            .decodeList<CoolanasNotificationFriend>()
+                    }
+                    friends.associate { it.friendId to it.username }.also { knownNames.putAll(it) }[row.senderId]
+                } catch (_: Exception) {
+                    null
+                }
+                CoolanasNotifications.notifyMessage(
+                    appContext,
+                    sender ?: "New Coolanas message",
+                    body,
+                    row.senderId
+                )
+            }
+        }
+        try {
+            channel.subscribe(blockUntilSubscribed = false)
+            awaitCancellation()
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            // Realtime reconnects automatically; the inbox itself keeps a refresh path.
+        } finally {
+            observer.cancel()
+            SupabaseClientProvider.client.realtime.removeChannel(channel)
         }
     }
 
@@ -327,6 +422,27 @@ fun StudyDashboardScreen(
             stopwatchError = "Select a subject before starting your study session."
             return
         }
+        val previous = timer
+        val estimatedServerNow = System.currentTimeMillis() + serverClockOffsetMs
+        val optimistic = when (action) {
+            "start" -> previous.copy(
+                startedAtMs = if (previous.startedAtMs == null) estimatedServerNow else previous.startedAtMs,
+                runningSubject = selectedSubject ?: previous.runningSubject
+            )
+            "pause" -> previous.copy(
+                elapsedMs = previous.elapsedAt(estimatedServerNow),
+                startedAtMs = null,
+                runningSubject = null
+            )
+            "reset" -> previous.copy(
+                elapsedMs = 0L,
+                startedAtMs = null,
+                runningSubject = null
+            )
+            else -> previous
+        }
+        timer = optimistic
+        updateTimerNotification(optimistic, serverClockOffsetMs)
         scope.launch {
             stopwatchBusy = true
             stopwatchError = null
@@ -340,8 +456,11 @@ fun StudyDashboardScreen(
                 }
                 timer = result.timer
                 serverClockOffsetMs = result.serverClockOffsetMs
+                updateTimerNotification(result.timer, result.serverClockOffsetMs)
                 if (action == "pause" || action == "reset") syncInBackground()
             } catch (error: Exception) {
+                timer = previous
+                updateTimerNotification(previous, serverClockOffsetMs)
                 stopwatchError = error.message ?: "Your personal stopwatch could not sync. Try again."
             } finally {
                 stopwatchBusy = false
@@ -356,12 +475,6 @@ fun StudyDashboardScreen(
             repository.selectSubject(userId, null)
         }
         repository.saveSubjects(userId, updated)
-        syncInBackground()
-    }
-
-    fun setAccountTheme(nextDarkMode: Boolean) {
-        onThemeChanged(nextDarkMode)
-        repository.saveTheme(userId, nextDarkMode)
         syncInBackground()
     }
 
