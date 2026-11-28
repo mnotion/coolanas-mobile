@@ -79,6 +79,10 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.max
 
@@ -110,12 +114,21 @@ fun StudyDashboardScreen(
     }
     var timer by remember(userId) { mutableStateOf(repository.timerState(userId)) }
     var now by remember(userId) { mutableLongStateOf(System.currentTimeMillis()) }
+    var serverClockOffsetMs by remember(userId) { mutableLongStateOf(0L) }
+    var stopwatchReady by remember(userId) { mutableStateOf(false) }
+    var stopwatchBusy by remember(userId) { mutableStateOf(false) }
+    var stopwatchError by remember(userId) { mutableStateOf<String?>(null) }
     var avatar by remember(userId) { mutableStateOf<Bitmap?>(null) }
     var entryVisible by remember(userId) { mutableStateOf(false) }
     var accountMenuOpen by remember(userId) { mutableStateOf(false) }
     var subjectMenu by remember(userId) { mutableStateOf<String?>(null) }
     var editorSubject by remember(userId) { mutableStateOf<StudySubject?>(null) }
     var showSubjectEditor by remember(userId) { mutableStateOf(false) }
+    var showAnalytics by remember(userId) { mutableStateOf(false) }
+    var analyticsSnapshot by remember(userId) { mutableStateOf(StudyAnalyticsSnapshot()) }
+    var analyticsLoading by remember(userId) { mutableStateOf(false) }
+    var analyticsError by remember(userId) { mutableStateOf<String?>(null) }
+    var analyticsRefreshVersion by remember(userId) { mutableLongStateOf(0L) }
 
     val timerRunning = timer.startedAtMs != null
     val timerPaused = !timerRunning && timer.elapsedMs > 0L
@@ -162,9 +175,16 @@ fun StudyDashboardScreen(
         delay(65L)
         entryVisible = true
         onThemeChanged(repository.cachedTheme(userId) == "dark")
-        if (timer.startedAtMs != null) {
-            withContext(Dispatchers.IO) { repository.checkpointTimer(userId) }
-            timer = repository.timerState(userId)
+        try {
+            val terminal = withContext(Dispatchers.IO) {
+                repository.accountStopwatchAction(userId, "get")
+            }
+            timer = terminal.timer
+            serverClockOffsetMs = terminal.serverClockOffsetMs
+            stopwatchReady = true
+            stopwatchError = null
+        } catch (error: Exception) {
+            stopwatchError = error.message ?: "Your account stopwatch could not be loaded."
         }
         val loadedSubjects = withContext(Dispatchers.IO) { repository.loadSubjects(userId) }
         subjects = loadedSubjects.subjects
@@ -183,6 +203,17 @@ fun StudyDashboardScreen(
 
     LaunchedEffect(userId, syncVersion) {
         if (syncVersion > 0) {
+            try {
+                val terminal = withContext(Dispatchers.IO) {
+                    repository.accountStopwatchAction(userId, "get")
+                }
+                timer = terminal.timer
+                serverClockOffsetMs = terminal.serverClockOffsetMs
+                stopwatchReady = true
+                stopwatchError = null
+            } catch (error: Exception) {
+                stopwatchError = error.message ?: "Your account stopwatch could not refresh."
+            }
             val loadedSubjects = withContext(Dispatchers.IO) { repository.loadSubjects(userId) }
             subjects = loadedSubjects.subjects
             subjectsEditable = loadedSubjects.editable
@@ -195,30 +226,115 @@ fun StudyDashboardScreen(
         }
     }
 
-    LaunchedEffect(userId, timer.startedAtMs) {
-        var lastCheckpointAt = if (timer.startedAtMs == null) {
-            System.currentTimeMillis()
-        } else {
-            System.currentTimeMillis() - 5_000L
-        }
+    // The database timestamp remains authoritative. This loop only animates the visible clock.
+    LaunchedEffect(userId) {
         while (true) {
             now = System.currentTimeMillis()
-            if (timer.startedAtMs != null && now - lastCheckpointAt >= 5_000L) {
-                val checkpointTime = now
-                withContext(Dispatchers.IO) {
-                    repository.checkpointTimer(userId, checkpointTime)
-                    repository.syncPending(userId)
-                }
-                lastCheckpointAt = checkpointTime
-                timer = repository.timerState(userId)
-            }
             delay(250L)
+        }
+    }
+
+    // Realtime refreshes the same account-owned terminal used by the website and Guild.
+    // A 15-second get is retained as a recovery fallback for changes missed while offline.
+    LaunchedEffect(userId) {
+        val channel = SupabaseClientProvider.client.realtime.channel(
+            "coolanas-account-stopwatch-$userId",
+            {}
+        )
+        val changes = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+            table = "coolanas_account_stopwatches"
+            filter = "user_id=eq.$userId"
+        }
+        val observer = launch {
+            changes.collect {
+                try {
+                    val latest = withContext(Dispatchers.IO) {
+                        repository.accountStopwatchAction(userId, "get")
+                    }
+                    timer = latest.timer
+                    serverClockOffsetMs = latest.serverClockOffsetMs
+                    stopwatchReady = true
+                    stopwatchError = null
+                } catch (error: Exception) {
+                    stopwatchError = error.message ?: "Could not refresh the shared stopwatch."
+                }
+            }
+        }
+        try {
+            channel.subscribe(blockUntilSubscribed = true)
+            val initial = withContext(Dispatchers.IO) {
+                repository.accountStopwatchAction(userId, "get")
+            }
+            timer = initial.timer
+            serverClockOffsetMs = initial.serverClockOffsetMs
+            stopwatchReady = true
+            stopwatchError = null
+            while (true) {
+                delay(15_000L)
+                val latest = withContext(Dispatchers.IO) {
+                    repository.accountStopwatchAction(userId, "get")
+                }
+                timer = latest.timer
+                serverClockOffsetMs = latest.serverClockOffsetMs
+                stopwatchReady = true
+                stopwatchError = null
+            }
+        } catch (error: Exception) {
+            stopwatchError = error.message ?: "Live stopwatch updates are unavailable."
+        } finally {
+            observer.cancel()
+            SupabaseClientProvider.client.realtime.removeChannel(channel)
+        }
+    }
+
+    LaunchedEffect(showAnalytics, userId, syncVersion, analyticsRefreshVersion) {
+        if (showAnalytics) {
+            analyticsLoading = true
+            analyticsError = null
+            try {
+                analyticsSnapshot = withContext(Dispatchers.IO) {
+                    repository.loadAnalytics(userId)
+                }
+            } catch (error: Exception) {
+                analyticsError = error.message ?: "Could not load your analytics."
+            } finally {
+                analyticsLoading = false
+            }
         }
     }
 
     fun syncInBackground() {
         scope.launch {
             withContext(Dispatchers.IO) { repository.syncPending(userId) }
+        }
+    }
+
+    fun runStopwatchAction(action: String) {
+        if (!stopwatchReady || stopwatchBusy) return
+        if (action == "start" && selectedSubject.isNullOrBlank()) {
+            subjectMenu = null
+            stopwatchError = "Select a subject before starting your study session."
+            return
+        }
+        scope.launch {
+            stopwatchBusy = true
+            stopwatchError = null
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    repository.accountStopwatchAction(
+                        userId = userId,
+                        action = action,
+                        subjectForStart = selectedSubject
+                    )
+                }
+                timer = result.timer
+                serverClockOffsetMs = result.serverClockOffsetMs
+                if (action == "pause" || action == "reset") syncInBackground()
+            } catch (error: Exception) {
+                stopwatchError = error.message ?: "Your personal stopwatch could not sync. Try again."
+            } finally {
+                stopwatchBusy = false
+            }
         }
     }
 
@@ -264,6 +380,17 @@ fun StudyDashboardScreen(
             .background(animatedBackground),
         contentAlignment = Alignment.Center
     ) {
+        if (showAnalytics) {
+            StudyAnalyticsScreen(
+                snapshot = analyticsSnapshot,
+                subjects = subjects,
+                darkMode = darkMode,
+                loading = analyticsLoading,
+                error = analyticsError,
+                onBack = { showAnalytics = false },
+                onRefresh = { analyticsRefreshVersion++ }
+            )
+        } else {
         if (timerRunning || !selectedSubject.isNullOrBlank()) {
             Canvas(Modifier.fillMaxSize()) {
                 val radius = max(size.width, size.height) * 0.9f
@@ -319,6 +446,24 @@ fun StudyDashboardScreen(
                     )
                 )
             }
+        }
+
+        AnimatedVisibility(
+            visible = entryVisible && !timerRunning,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(top = 18.dp, start = 20.dp),
+            enter = fadeIn(tween(750, easing = FastOutSlowInEasing)) +
+                scaleIn(initialScale = 0.86f, animationSpec = tween(850, easing = FastOutSlowInEasing)) +
+                slideInVertically(initialOffsetY = { -18 }, animationSpec = tween(850, easing = FastOutSlowInEasing)),
+            exit = fadeOut(tween(320, easing = FastOutSlowInEasing)) +
+                scaleOut(targetScale = 0.86f, animationSpec = tween(320, easing = FastOutSlowInEasing)) +
+                slideOutVertically(targetOffsetY = { -12 }, animationSpec = tween(320, easing = FastOutSlowInEasing))
+        ) {
+            AnalyticsNavigationButton(
+                enabled = stopwatchReady,
+                onClick = { showAnalytics = true }
+            )
         }
 
         AnimatedVisibility(
@@ -427,7 +572,7 @@ fun StudyDashboardScreen(
         }
 
         AnimatedVisibility(
-            visible = entryVisible,
+            visible = entryVisible && !showAnalytics,
             modifier = Modifier.align(Alignment.Center),
             enter = fadeIn(tween(900, easing = FastOutSlowInEasing)) +
                 scaleIn(initialScale = 0.88f, animationSpec = tween(950, easing = FastOutSlowInEasing)) +
@@ -453,7 +598,7 @@ fun StudyDashboardScreen(
                     )
                 ) {
                     Text(
-                        text = formatStudyTime(timer.elapsedAt(now)),
+                        text = formatStudyTime(timer.elapsedAt(now + serverClockOffsetMs)),
                         modifier = Modifier.align(Alignment.Center),
                         fontSize = if (timerRunning) 44.sp else 34.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -471,13 +616,13 @@ fun StudyDashboardScreen(
                         TimerControlButton(
                             contentDescription = "Reset timer",
                             size = if (timerRunning) 42.dp else 38.dp,
+                            enabled = stopwatchReady && !stopwatchBusy,
                             background = Color.White,
                             foreground = Color(0xFF555555),
                             onClick = {
-                                timer = repository.resetTimer(userId)
                                 accountMenuOpen = false
                                 subjectMenu = null
-                                syncInBackground()
+                                runStopwatchAction("reset")
                             },
                             icon = TimerControlIcon.Reset
                         )
@@ -487,19 +632,25 @@ fun StudyDashboardScreen(
                             background = if (timerPaused) Color(0xFFD6B84E) else Color(0xFF171717),
                             foreground = if (timerPaused) Color(0xFF17140A) else Color.White,
                             onClick = {
-                                timer = if (timerRunning) {
-                                    repository.pauseTimer(userId)
-                                } else {
-                                    repository.startTimer(userId, selectedSubject.orEmpty())
-                                }
-                                syncInBackground()
+                                runStopwatchAction(if (timerRunning) "pause" else "start")
                             },
                             icon = if (timerRunning) TimerControlIcon.Pause else TimerControlIcon.Play,
-                            enabled = subjectsEditable && (timerRunning || !selectedSubject.isNullOrBlank())
+                            enabled = stopwatchReady && !stopwatchBusy && subjectsEditable &&
+                                (timerRunning || !selectedSubject.isNullOrBlank())
                         )
                     }
                 }
             }
+        }
+
+        if (!stopwatchError.isNullOrBlank()) {
+            Text(
+                text = stopwatchError.orEmpty(),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 22.dp, vertical = 18.dp),
+                color = MaterialTheme.colorScheme.error,
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center
+            )
         }
 
         val shownSubject = activeSubjectName
@@ -661,9 +812,10 @@ fun StudyDashboardScreen(
                 }
             }
         }
+        }
     }
 
-    if (showSubjectEditor) {
+    if (showSubjectEditor && !showAnalytics) {
         SubjectEditorDialog(
             subject = editorSubject,
             darkMode = darkMode,
