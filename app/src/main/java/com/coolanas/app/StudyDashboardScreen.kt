@@ -134,11 +134,13 @@ private fun updateStudyTimerNotification(
     selectedSubject: String?
 ) {
     if (state.startedAtMs != null) {
-        StudyTimerNotificationService.show(
-            context,
-            state.elapsedAt(System.currentTimeMillis() + clockOffsetMs),
-            state.runningSubject ?: selectedSubject ?: "Studying"
-        )
+        if (CoolanasAppRuntime.isForeground) {
+            StudyTimerNotificationService.show(
+                context,
+                state.elapsedAt(System.currentTimeMillis() + clockOffsetMs),
+                state.runningSubject ?: selectedSubject ?: "Studying"
+            )
+        }
     } else {
         StudyTimerNotificationService.hide(context)
     }
