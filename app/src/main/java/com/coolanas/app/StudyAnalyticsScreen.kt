@@ -44,7 +44,6 @@ import java.time.temporal.ChronoUnit
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 import kotlin.math.max
 
@@ -380,6 +379,13 @@ fun StudyAnalyticsScreen(
             }
         }
 
+        if (snapshot.fromCache) {
+            Text(
+                "Offline · showing your last saved analytics.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp
+            )
+        }
         if (snapshot.legacyImportPending) {
             Text("Restoring older analytics data from the cloud archive.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
         } else if (snapshot.mirrorPending) {
