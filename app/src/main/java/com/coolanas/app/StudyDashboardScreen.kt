@@ -126,6 +126,23 @@ private data class CoolanasNotificationFriend(
 
 private enum class DashboardPage { Timer, Analytics, Messages }
 
+private fun updateStudyTimerNotification(
+    context: Context,
+    state: StudyTimerState,
+    clockOffsetMs: Long,
+    selectedSubject: String?
+) {
+    if (state.startedAtMs != null) {
+        StudyTimerNotificationService.show(
+            context,
+            state.elapsedAt(System.currentTimeMillis() + clockOffsetMs),
+            state.runningSubject ?: selectedSubject ?: "Studying"
+        )
+    } else {
+        StudyTimerNotificationService.hide(context)
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun StudyDashboardScreen(
@@ -206,30 +223,6 @@ fun StudyDashboardScreen(
         ]
     )
 
-    fun finishInlineSubjectEdit(oldName: String) {
-        val newName = inlineSubjectDraft.trim().take(32)
-        val duplicate = newName.isNotBlank() && subjects.any {
-            it.name.equals(newName, ignoreCase = true) && it.name != oldName
-        }
-        if (duplicate) {
-            stopwatchError = "A subject with that name already exists."
-            inlineSubjectDraft = oldName
-            inlineEditingSubject = null
-            return
-        }
-        val updated = if (newName.isBlank()) {
-            subjects.filterNot { it.name == oldName }
-        } else {
-            subjects.map { if (it.name == oldName) it.copy(name = newName) else it }
-        }
-        if (selectedSubject == oldName) {
-            selectedSubject = newName.ifBlank { updated.firstOrNull()?.name }
-            repository.selectSubject(userId, selectedSubject)
-        }
-        saveSubjectChanges(updated)
-        inlineEditingSubject = null
-    }
-
     LaunchedEffect(inlineEditingSubject) {
         if (inlineEditingSubject != null) {
             delay(100L)
@@ -247,7 +240,7 @@ fun StudyDashboardScreen(
             }
             timer = terminal.timer
             serverClockOffsetMs = terminal.serverClockOffsetMs
-            updateTimerNotification(terminal.timer, terminal.serverClockOffsetMs)
+            updateStudyTimerNotification(appContext, terminal.timer, terminal.serverClockOffsetMs, selectedSubject)
             stopwatchReady = true
             stopwatchError = null
         } catch (error: Exception) {
@@ -316,7 +309,7 @@ fun StudyDashboardScreen(
                     }
                     timer = latest.timer
                     serverClockOffsetMs = latest.serverClockOffsetMs
-                    updateTimerNotification(latest.timer, latest.serverClockOffsetMs)
+                    updateStudyTimerNotification(appContext, latest.timer, latest.serverClockOffsetMs, selectedSubject)
                     stopwatchReady = true
                     stopwatchError = null
                 } catch (error: Exception) {
@@ -373,19 +366,6 @@ fun StudyDashboardScreen(
                 }
                 delay(15_000L)
             }
-        }
-    }
-
-    fun updateTimerNotification(state: StudyTimerState, clockOffsetMs: Long) {
-        if (state.startedAtMs != null) {
-            val elapsed = state.elapsedAt(System.currentTimeMillis() + clockOffsetMs)
-            StudyTimerNotificationService.show(
-                appContext,
-                elapsed,
-                state.runningSubject ?: selectedSubject ?: "Studying"
-            )
-        } else {
-            StudyTimerNotificationService.hide(appContext)
         }
     }
 
@@ -473,7 +453,7 @@ fun StudyDashboardScreen(
             else -> previous
         }
         timer = optimistic
-        updateTimerNotification(optimistic, serverClockOffsetMs)
+        updateStudyTimerNotification(appContext, optimistic, serverClockOffsetMs, selectedSubject)
         scope.launch {
             stopwatchBusy = true
             stopwatchError = null
@@ -487,11 +467,11 @@ fun StudyDashboardScreen(
                 }
                 timer = result.timer
                 serverClockOffsetMs = result.serverClockOffsetMs
-                updateTimerNotification(result.timer, result.serverClockOffsetMs)
+                updateStudyTimerNotification(appContext, result.timer, result.serverClockOffsetMs, selectedSubject)
                 if (action == "pause" || action == "reset") syncInBackground()
             } catch (error: Exception) {
                 timer = previous
-                updateTimerNotification(previous, serverClockOffsetMs)
+                updateStudyTimerNotification(appContext, previous, serverClockOffsetMs, selectedSubject)
                 stopwatchError = error.message ?: "Your personal stopwatch could not sync. Try again."
             } finally {
                 stopwatchBusy = false
@@ -507,6 +487,30 @@ fun StudyDashboardScreen(
         }
         repository.saveSubjects(userId, updated)
         syncInBackground()
+    }
+
+    fun finishInlineSubjectEdit(oldName: String) {
+        val newName = inlineSubjectDraft.trim().take(32)
+        val duplicate = newName.isNotBlank() && subjects.any {
+            it.name.equals(newName, ignoreCase = true) && it.name != oldName
+        }
+        if (duplicate) {
+            stopwatchError = "A subject with that name already exists."
+            inlineSubjectDraft = oldName
+            inlineEditingSubject = null
+            return
+        }
+        val updated = if (newName.isBlank()) {
+            subjects.filterNot { it.name == oldName }
+        } else {
+            subjects.map { if (it.name == oldName) it.copy(name = newName) else it }
+        }
+        if (selectedSubject == oldName) {
+            selectedSubject = newName.ifBlank { updated.firstOrNull()?.name }
+            repository.selectSubject(userId, selectedSubject)
+        }
+        saveSubjectChanges(updated)
+        inlineEditingSubject = null
     }
 
     val glowTransition = rememberInfiniteTransition(label = "timer-glow")
