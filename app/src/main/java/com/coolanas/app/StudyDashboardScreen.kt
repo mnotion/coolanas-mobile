@@ -556,7 +556,8 @@ fun StudyDashboardScreen(
             },
             label = "coolanas-main-page-transition"
         ) { page ->
-            when (page) {
+            Box(Modifier.fillMaxSize()) {
+                when (page) {
                 DashboardPage.Analytics -> {
                     StudyAnalyticsScreen(
                         snapshot = analyticsSnapshot,
@@ -980,9 +981,8 @@ fun StudyDashboardScreen(
                     }
                 }
             }
-        }
+                }
             }
-        }
         }
 
         if (!timerRunning || activePage != DashboardPage.Timer) {
