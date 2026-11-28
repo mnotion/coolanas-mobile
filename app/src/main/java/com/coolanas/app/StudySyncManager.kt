@@ -159,7 +159,8 @@ class StudySyncManager(context: Context) {
     private fun themeDirtyKey(userId: String) = key(userId, "account_theme_dirty")
     private fun terminalElapsedKey(userId: String) = key(userId, "account_stopwatch_elapsed_ms")
     private fun terminalStartedKey(userId: String) = key(userId, "account_stopwatch_started_at_ms")
-    private fun runningSubjectKey(userId: String) = key(userId, "timer_running_subject")
+    private fun terminalClockOffsetKey(userId: String) = key(userId, "account_stopwatch_clock_offset_ms")
+    private fun runningSubjectKey(userId: String) = key(userId, "account_stopwatch_running_subject")
     private fun selectedSubjectKey(userId: String) = key(userId, "selected_subject")
 
     fun cachedSubjects(userId: String): List<StudySubject>? {
@@ -169,6 +170,9 @@ class StudySyncManager(context: Context) {
 
     fun selectedSubject(userId: String): String? =
         preferences.getString(selectedSubjectKey(userId), null)
+
+    fun cachedServerClockOffsetMs(userId: String): Long =
+        preferences.getLong(terminalClockOffsetKey(userId), 0L)
 
     fun timerState(userId: String): StudyTimerState = StudyTimerState(
         elapsedMs = preferences.getLong(terminalElapsedKey(userId), 0L).coerceAtLeast(0L),
@@ -220,7 +224,7 @@ class StudySyncManager(context: Context) {
         preferences.getString(themeKey(userId), "light")?.takeIf { it == "dark" } ?: "light"
 
     fun saveTheme(userId: String, dark: Boolean) {
-        synchronized(timerCheckpointLock) {
+        synchronized(accountStateLock) {
             preferences.edit()
                 .putString(themeKey(userId), if (dark) "dark" else "light")
                 .putBoolean(themeDirtyKey(userId), true)
@@ -297,8 +301,9 @@ class StudySyncManager(context: Context) {
         val previousStartedAtMs = row.previousStartedAt?.let {
             runCatching { Instant.parse(it).toEpochMilli() }.getOrNull()
         }
+        val serverClockOffsetMs = serverNowMs - System.currentTimeMillis()
 
-        synchronized(timerCheckpointLock) {
+        synchronized(accountStateLock) {
             val storedRunningSubject = preferences.getString(runningSubjectKey(userId), null)
             val selected = preferences.getString(selectedSubjectKey(userId), null)
             val previousCachedStart = preferences.getLong(terminalStartedKey(userId), 0L).takeIf { it > 0L }
@@ -319,10 +324,11 @@ class StudySyncManager(context: Context) {
 
             val editor = preferences.edit()
                 .putLong(terminalElapsedKey(userId), row.elapsedMs.coerceAtLeast(0L))
+                .putLong(terminalClockOffsetKey(userId), serverClockOffsetMs)
             if (startedAtMs != null) {
-                editor.putLong(startedKey(userId), startedAtMs)
+                editor.putLong(terminalStartedKey(userId), startedAtMs)
             } else {
-                editor.remove(startedKey(userId))
+                editor.remove(terminalStartedKey(userId))
             }
             if (action == "start" && startedAtMs != null) {
                 val chosen = subjectForStart?.takeIf { it.isNotBlank() } ?: selected
@@ -346,7 +352,7 @@ class StudySyncManager(context: Context) {
         AccountStopwatchActionResult(
             timer = timerState(userId),
             serverNowMs = serverNowMs,
-            serverClockOffsetMs = serverNowMs - System.currentTimeMillis(),
+            serverClockOffsetMs = serverClockOffsetMs,
             actionChanged = row.actionChanged,
             previousStartedAtMs = previousStartedAtMs
         )
@@ -494,7 +500,7 @@ class StudySyncManager(context: Context) {
                             put("theme", JsonPrimitive(theme))
                         })
                     })
-                    synchronized(timerCheckpointLock) {
+                    synchronized(accountStateLock) {
                         if (cachedTheme(userId) == theme) {
                             preferences.edit().putBoolean(themeDirtyKey(userId), false).apply()
                         }
@@ -557,7 +563,7 @@ class StudySyncManager(context: Context) {
                 })
             })
             val sentIds = batch.mapTo(mutableSetOf()) { it.eventId }
-            val saved = synchronized(timerCheckpointLock) {
+            val saved = synchronized(accountStateLock) {
                 val latest = readAnalyticsQueue(userId).filterNot { it.eventId in sentIds }
                 preferences.edit().putString(queueKey(userId), encodeAnalyticsQueue(latest)).commit()
             }
