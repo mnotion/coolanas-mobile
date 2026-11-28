@@ -38,6 +38,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.realtime.PostgresAction
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.Job
+import io.github.jan.supabase.realtime.broadcastFlow
+import io.github.jan.supabase.realtime.broadcast
+import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
@@ -87,6 +92,12 @@ private data class CoolanasFriendSearchRow(
 )
 
 @Serializable
+private data class CoolanasDmTypingPayload(
+    @SerialName("user_id") val userId: String,
+    val typing: Boolean
+)
+
+@Serializable
 private data class CoolanasUnreadSenderRow(
     @SerialName("sender_id") val senderId: String
 )
@@ -125,6 +136,9 @@ fun StudyMessagingScreen(userId: String) {
     var requestsVisible by remember(userId) { mutableStateOf(false) }
     var friendListVersion by remember(userId) { mutableStateOf(0) }
     var unreadCounts by remember(userId) { mutableStateOf<Map<String, Int>>(emptyMap()) }
+    var activeTypingChannel by remember(userId) { mutableStateOf<RealtimeChannel?>(null) }
+    var remoteTyping by remember(userId) { mutableStateOf(false) }
+    var typingHeartbeat by remember(userId) { mutableStateOf<Job?>(null) }
     val messageListState = rememberLazyListState()
 
     suspend fun loadFriends() {
@@ -156,6 +170,15 @@ fun StudyMessagingScreen(userId: String) {
             }.decodeList<CoolanasUnreadSenderRow>()
         }
         unreadCounts = rows.groupingBy { it.senderId }.eachCount()
+    }
+
+    fun broadcastTyping(typing: Boolean) {
+        val channel = activeTypingChannel ?: return
+        scope.launch {
+            runCatching {
+                channel.broadcast("typing", CoolanasDmTypingPayload(userId, typing))
+            }
+        }
     }
 
     LaunchedEffect(userId, friendListVersion) {
@@ -201,9 +224,26 @@ fun StudyMessagingScreen(userId: String) {
         val activeConversation = conversationId ?: return@LaunchedEffect
         messages = emptyList()
         val channel = SupabaseClientProvider.client.realtime.channel("coolanas-mobile-dm-$activeConversation")
+        activeTypingChannel = channel
+        val typingFlow = channel.broadcastFlow<CoolanasDmTypingPayload>("typing")
         val insertFlow = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
             table = "coolanas_dm_messages"
             filter = "conversation_id=eq.$activeConversation"
+        }
+        var typingExpiryJob: Job? = null
+        val typingObserver = launch {
+            typingFlow.collect { payload ->
+                if (payload.userId != userId) {
+                    typingExpiryJob?.cancel()
+                    remoteTyping = payload.typing
+                    if (payload.typing) {
+                        typingExpiryJob = launch {
+                            delay(5_500L)
+                            remoteTyping = false
+                        }
+                    }
+                }
+            }
         }
         val observer = launch {
             insertFlow.collect { action ->
@@ -258,7 +298,13 @@ fun StudyMessagingScreen(userId: String) {
         } catch (exception: Exception) {
             error = exception.message ?: "Live messages could not refresh."
         } finally {
+            typingExpiryJob?.cancel()
+            typingObserver.cancel()
             observer.cancel()
+            if (activeTypingChannel === channel) activeTypingChannel = null
+            remoteTyping = false
+            typingHeartbeat?.cancel()
+            typingHeartbeat = null
             SupabaseClientProvider.client.realtime.removeChannel(channel)
         }
     }
@@ -486,12 +532,24 @@ fun StudyMessagingScreen(userId: String) {
                 Text(
                     "Close",
                     modifier = Modifier.noRippleClickable {
+                        typingHeartbeat?.cancel()
+                        typingHeartbeat = null
+                        broadcastTyping(false)
                         selectedFriend = null
                         conversationId = null
+                        remoteTyping = false
                         messages = emptyList()
                     }.padding(8.dp),
                     color = Color(0xFFD7C8F5),
                     fontSize = 12.sp
+                )
+            }
+            if (remoteTyping) {
+                Text(
+                    "${selectedFriend!!.username} is typing…",
+                    modifier = Modifier.fillMaxWidth().padding(start = 4.dp),
+                    color = Color(0xFFBDADE0),
+                    fontSize = 11.sp
                 )
             }
             LazyColumn(
@@ -546,7 +604,22 @@ fun StudyMessagingScreen(userId: String) {
             ) {
                 OutlinedTextField(
                     value = draft,
-                    onValueChange = { draft = it.take(300) },
+                    onValueChange = { value ->
+                        draft = value.take(300)
+                        typingHeartbeat?.cancel()
+                        if (draft.isNotBlank()) {
+                            broadcastTyping(true)
+                            typingHeartbeat = scope.launch {
+                                while (isActive) {
+                                    delay(2_000L)
+                                    broadcastTyping(true)
+                                }
+                            }
+                        } else {
+                            broadcastTyping(false)
+                            typingHeartbeat = null
+                        }
+                    },
                     modifier = Modifier.weight(1f),
                     placeholder = { Text("Write a message") },
                     maxLines = 4
@@ -557,6 +630,9 @@ fun StudyMessagingScreen(userId: String) {
                         .noRippleClickable {
                             val outgoing = draft.trim()
                             val activeConversation = conversationId
+                            typingHeartbeat?.cancel()
+                            typingHeartbeat = null
+                            broadcastTyping(false)
                             if (outgoing.isNotBlank() && activeConversation != null && !sending) {
                                 val optimistic = CoolanasDmRow(
                                     id = UUID.randomUUID().toString(),
