@@ -125,7 +125,7 @@ private data class CoolanasNotificationFriend(
     val username: String
 )
 
-private enum class DashboardPage { Timer, Analytics, Messages }
+private enum class DashboardPage { Timer, Analytics, Messages, Guilds }
 
 private fun updateStudyTimerNotification(
     context: Context,
@@ -184,6 +184,7 @@ fun StudyDashboardScreen(
     var activePage by remember(userId) { mutableStateOf(DashboardPage.Timer) }
     val showAnalytics = activePage == DashboardPage.Analytics
     val showMessages = activePage == DashboardPage.Messages
+    val showGuilds = activePage == DashboardPage.Guilds
     var analyticsSnapshot by remember(userId) { mutableStateOf(StudyAnalyticsSnapshot()) }
     var analyticsLoading by remember(userId) { mutableStateOf(false) }
 
@@ -540,7 +541,7 @@ fun StudyDashboardScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (activePage == DashboardPage.Messages) Color(0xFFF4F6FB) else animatedBackground),
+            .background(if (activePage == DashboardPage.Messages || activePage == DashboardPage.Guilds) Color(0xFFF4F6FB) else animatedBackground),
         contentAlignment = Alignment.Center
     ) {
         AnimatedContent(
@@ -578,6 +579,14 @@ fun StudyDashboardScreen(
                     )
                 }
                 DashboardPage.Messages -> StudyMessagingScreen(userId = userId)
+                DashboardPage.Guilds -> StudyGuildsScreen(
+                    userId = userId,
+                    timer = timer,
+                    serverNowMillis = now + serverClockOffsetMs,
+                    onToggleTimer = { runStopwatchAction(if (timer.startedAtMs != null) "pause" else "start") },
+                    onResetTimer = { runStopwatchAction("reset") },
+                    onOpenTimer = { activePage = DashboardPage.Timer }
+                )
                 DashboardPage.Timer -> {
         if (timerRunning || !selectedSubject.isNullOrBlank()) {
             Canvas(Modifier.fillMaxSize()) {
@@ -1119,7 +1128,8 @@ private fun CoolanasBottomNavigation(
             listOf(
                 Triple(DashboardPage.Timer, "Timer", "◷"),
                 Triple(DashboardPage.Analytics, "Analytics", "▥"),
-                Triple(DashboardPage.Messages, "Messages", "✉")
+                Triple(DashboardPage.Messages, "Messages", "✉"),
+                Triple(DashboardPage.Guilds, "Guilds", "♧")
             ).forEach { (page, label, symbol) ->
                 val selected = activePage == page
                 val selectionColour by animateColorAsState(
