@@ -1,6 +1,9 @@
 package com.coolanas.app
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
+import android.view.WindowManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -243,6 +246,7 @@ fun StudyGuildsScreen(
     onOpenTimer: () -> Unit
 ) {
     val context = LocalContext.current
+    val hostActivity = remember(context) { context.findHostActivity() }
     val scope = rememberCoroutineScope()
     var page by remember(userId) { mutableStateOf(GuildPage.Home) }
     var guild by remember(userId) { mutableStateOf<GuildData?>(null) }
@@ -613,6 +617,24 @@ fun StudyGuildsScreen(
     val members = currentGuild?.members.orEmpty()
 
     val joinedHomeLayout = page == GuildPage.Home && currentGuild != null
+
+    SideEffect {
+        val fullscreen = WindowManager.LayoutParams.FLAG_FULLSCREEN
+        if (joinedHomeLayout) {
+            hostActivity?.window?.clearFlags(fullscreen)
+        } else {
+            hostActivity?.window?.setFlags(fullscreen, fullscreen)
+        }
+    }
+    DisposableEffect(hostActivity) {
+        onDispose {
+            hostActivity?.window?.setFlags(
+                WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                WindowManager.LayoutParams.FLAG_FULLSCREEN
+            )
+        }
+    }
+
     Box(Modifier.fillMaxSize().background(GuildBackground)) {
         Column(
             Modifier.fillMaxSize().then(
@@ -1456,6 +1478,13 @@ private fun formatGuildTime(value: String): String = runCatching {
         .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault()))
 }.getOrDefault("")
 
+
+
+private tailrec fun Context.findHostActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findHostActivity()
+    else -> null
+}
 
 private fun mergeGuildMessageLists(
     first: List<GuildMessageData>,
