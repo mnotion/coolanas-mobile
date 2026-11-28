@@ -184,7 +184,6 @@ fun StudyDashboardScreen(
     var activePage by remember(userId) { mutableStateOf(DashboardPage.Timer) }
     val showAnalytics = activePage == DashboardPage.Analytics
     val showMessages = activePage == DashboardPage.Messages
-    val showGuilds = activePage == DashboardPage.Guilds
     var analyticsSnapshot by remember(userId) { mutableStateOf(StudyAnalyticsSnapshot()) }
     var analyticsLoading by remember(userId) { mutableStateOf(false) }
 
@@ -1156,14 +1155,17 @@ private fun CoolanasBottomNavigation(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    if (page == DashboardPage.Messages) {
-                        MessagingNavigationGlyph(if (activePage != DashboardPage.Timer) { if (selected) Color(0xFF246CCB) else Color(0xFF7B879B) } else if (selected) Color(0xFFF0E8FF) else Color(0xFFB8BBC4))
-                    } else {
-                        Text(symbol, color = if (activePage != DashboardPage.Timer) { if (selected) Color(0xFF246CCB) else Color(0xFF7B879B) } else if (selected) Color(0xFFF0E8FF) else Color(0xFFB8BBC4), fontSize = 17.sp)
+                    val iconTint = if (activePage != DashboardPage.Timer) {
+                        if (selected) Color(0xFF246CCB) else Color(0xFF7B879B)
+                    } else if (selected) Color(0xFFF0E8FF) else Color(0xFFB8BBC4)
+                    when (page) {
+                        DashboardPage.Messages -> MessagingNavigationGlyph(iconTint)
+                        DashboardPage.Guilds -> GuildNavigationGlyph(iconTint)
+                        else -> Text(symbol, color = iconTint, fontSize = 17.sp)
                     }
                     Text(
                         label,
-                        color = if (activePage != DashboardPage.Timer) { if (selected) Color(0xFF246CCB) else Color(0xFF7B879B) } else if (selected) Color(0xFFF0E8FF) else Color(0xFFB8BBC4),
+                        color = iconTint,
                         fontSize = 10.sp,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
                     )
@@ -1173,6 +1175,34 @@ private fun CoolanasBottomNavigation(
     }
 }
 
+
+@Composable
+private fun GuildNavigationGlyph(tint: Color) {
+    Canvas(Modifier.size(22.dp)) {
+        val stroke = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round)
+        drawCircle(tint, radius = size.width * 0.13f, center = Offset(size.width * 0.50f, size.height * 0.25f), style = stroke)
+        drawCircle(tint, radius = size.width * 0.105f, center = Offset(size.width * 0.20f, size.height * 0.38f), style = stroke)
+        drawCircle(tint, radius = size.width * 0.105f, center = Offset(size.width * 0.80f, size.height * 0.38f), style = stroke)
+        drawArc(
+            color = tint, startAngle = 200f, sweepAngle = 140f, useCenter = false,
+            topLeft = Offset(size.width * 0.25f, size.height * 0.35f),
+            size = androidx.compose.ui.geometry.Size(size.width * 0.50f, size.height * 0.52f),
+            style = stroke
+        )
+        drawArc(
+            color = tint, startAngle = 200f, sweepAngle = 140f, useCenter = false,
+            topLeft = Offset(size.width * 0.01f, size.height * 0.49f),
+            size = androidx.compose.ui.geometry.Size(size.width * 0.36f, size.height * 0.39f),
+            style = stroke
+        )
+        drawArc(
+            color = tint, startAngle = 200f, sweepAngle = 140f, useCenter = false,
+            topLeft = Offset(size.width * 0.63f, size.height * 0.49f),
+            size = androidx.compose.ui.geometry.Size(size.width * 0.36f, size.height * 0.39f),
+            style = stroke
+        )
+    }
+}
 
 @Composable
 private fun MessagingNavigationGlyph(tint: Color) {
