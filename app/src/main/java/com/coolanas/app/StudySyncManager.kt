@@ -14,7 +14,6 @@ import androidx.work.Data
 import androidx.work.WorkManager
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.functions.functions
-import io.github.jan.supabase.postgrest.result.decodeList
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.Headers
