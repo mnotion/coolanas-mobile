@@ -261,16 +261,14 @@ fun StudyDashboardScreen(
             }
         }
         try {
-            channel.subscribe(blockUntilSubscribed = true)
-            val initial = withContext(Dispatchers.IO) {
-                repository.accountStopwatchAction(userId, "get")
+            // Do not block the polling fallback on WebSocket connection establishment.
+            try {
+                channel.subscribe(blockUntilSubscribed = false)
+            } catch (error: Exception) {
+                stopwatchError = error.message ?: "Live stopwatch updates are unavailable; periodic refresh will continue."
             }
-            timer = initial.timer
-            serverClockOffsetMs = initial.serverClockOffsetMs
-            stopwatchReady = true
-            stopwatchError = null
-            while (true) {
-                delay(15_000L)
+
+            suspend fun refreshTerminal() {
                 val latest = withContext(Dispatchers.IO) {
                     repository.accountStopwatchAction(userId, "get")
                 }
@@ -279,8 +277,14 @@ fun StudyDashboardScreen(
                 stopwatchReady = true
                 stopwatchError = null
             }
+
+            refreshTerminal()
+            while (true) {
+                delay(15_000L)
+                refreshTerminal()
+            }
         } catch (error: Exception) {
-            stopwatchError = error.message ?: "Live stopwatch updates are unavailable."
+            stopwatchError = error.message ?: "Your account stopwatch could not refresh."
         } finally {
             observer.cancel()
             SupabaseClientProvider.client.realtime.removeChannel(channel)
