@@ -132,7 +132,7 @@ class StudySyncManager(context: Context) {
 
     companion object {
         private val globalSyncMutex = Mutex()
-        private val timerCheckpointLock = Any()
+        private val accountStateLock = Any()
         const val WORK_NAME_PREFIX = "coolanas-study-sync-"
         val defaultSubjects = listOf(
             StudySubject("Maths", 0),
@@ -157,9 +157,8 @@ class StudySyncManager(context: Context) {
     private fun queueKey(userId: String) = key(userId, "analytics_queue")
     private fun themeKey(userId: String) = key(userId, "account_theme")
     private fun themeDirtyKey(userId: String) = key(userId, "account_theme_dirty")
-    private fun elapsedKey(userId: String) = key(userId, "timer_elapsed_ms")
-    private fun startedKey(userId: String) = key(userId, "timer_started_at_ms")
-    private fun checkpointKey(userId: String) = key(userId, "timer_checkpoint_at_ms")
+    private fun terminalElapsedKey(userId: String) = key(userId, "account_stopwatch_elapsed_ms")
+    private fun terminalStartedKey(userId: String) = key(userId, "account_stopwatch_started_at_ms")
     private fun runningSubjectKey(userId: String) = key(userId, "timer_running_subject")
     private fun selectedSubjectKey(userId: String) = key(userId, "selected_subject")
 
@@ -172,8 +171,8 @@ class StudySyncManager(context: Context) {
         preferences.getString(selectedSubjectKey(userId), null)
 
     fun timerState(userId: String): StudyTimerState = StudyTimerState(
-        elapsedMs = preferences.getLong(elapsedKey(userId), 0L).coerceAtLeast(0L),
-        startedAtMs = preferences.getLong(startedKey(userId), 0L).takeIf { it > 0L },
+        elapsedMs = preferences.getLong(terminalElapsedKey(userId), 0L).coerceAtLeast(0L),
+        startedAtMs = preferences.getLong(terminalStartedKey(userId), 0L).takeIf { it > 0L },
         selectedSubject = selectedSubject(userId),
         runningSubject = preferences.getString(runningSubjectKey(userId), null)
     )
@@ -181,68 +180,6 @@ class StudySyncManager(context: Context) {
     fun selectSubject(userId: String, subject: String?) {
         preferences.edit().putString(selectedSubjectKey(userId), subject).apply()
     }
-
-    fun startTimer(userId: String, subject: String): StudyTimerState = synchronized(timerCheckpointLock) {
-        val now = System.currentTimeMillis()
-        preferences.edit()
-            .putString(selectedSubjectKey(userId), subject)
-            .putLong(startedKey(userId), now)
-            .putLong(checkpointKey(userId), now)
-            .putString(runningSubjectKey(userId), subject)
-            .apply()
-        timerState(userId)
-    }
-
-    fun pauseTimer(userId: String): StudyTimerState = synchronized(timerCheckpointLock) {
-        val before = timerState(userId)
-        if (before.startedAtMs != null) {
-            val now = System.currentTimeMillis()
-            checkpointTimer(userId, now)
-            preferences.edit()
-                .putLong(elapsedKey(userId), before.elapsedAt(now))
-                .remove(startedKey(userId))
-                .remove(checkpointKey(userId))
-                .remove(runningSubjectKey(userId))
-                .apply()
-        }
-        timerState(userId)
-    }
-
-    fun resetTimer(userId: String): StudyTimerState = synchronized(timerCheckpointLock) {
-        if (timerState(userId).startedAtMs != null) {
-            checkpointTimer(userId, System.currentTimeMillis())
-        }
-        preferences.edit()
-            .putLong(elapsedKey(userId), 0L)
-            .remove(startedKey(userId))
-            .remove(checkpointKey(userId))
-            .remove(runningSubjectKey(userId))
-            .apply()
-        timerState(userId)
-    }
-
-    /**
-     * Commits only the time since the last durable checkpoint. The pending records and
-     * checkpoint timestamp are written in one SharedPreferences transaction, so a crash
-     * cannot leave the timer checkpoint ahead of an unsaved analytics record.
-     */
-    fun checkpointTimer(userId: String, endAt: Long = System.currentTimeMillis()): Boolean =
-        synchronized(timerCheckpointLock) {
-            val start = preferences.getLong(startedKey(userId), 0L)
-            if (start <= 0L) return@synchronized false
-            val previousCheckpoint = preferences.getLong(checkpointKey(userId), start).coerceAtLeast(start)
-            if (endAt <= previousCheckpoint) return@synchronized false
-
-            val subject = preferences.getString(runningSubjectKey(userId), null) ?: "Unassigned"
-            val newRecords = splitInterval(previousCheckpoint, endAt, subject)
-            val queue = readAnalyticsQueue(userId).toMutableList()
-            queue.addAll(newRecords)
-
-            preferences.edit()
-                .putString(queueKey(userId), encodeAnalyticsQueue(queue))
-                .putLong(checkpointKey(userId), endAt)
-                .commit()
-        }
 
     fun saveSubjects(userId: String, subjects: List<StudySubject>) {
         val clean = normaliseSubjects(subjects)
@@ -364,7 +301,7 @@ class StudySyncManager(context: Context) {
         synchronized(timerCheckpointLock) {
             val storedRunningSubject = preferences.getString(runningSubjectKey(userId), null)
             val selected = preferences.getString(selectedSubjectKey(userId), null)
-            val previousCachedStart = preferences.getLong(startedKey(userId), 0L).takeIf { it > 0L }
+            val previousCachedStart = preferences.getLong(terminalStartedKey(userId), 0L).takeIf { it > 0L }
             val isNewRunningSession = startedAtMs != null && previousCachedStart != startedAtMs
             val subjectToRecord = storedRunningSubject ?: selected ?: "Unassigned"
             val completedRecords = if (
@@ -381,7 +318,7 @@ class StudySyncManager(context: Context) {
             queue.addAll(completedRecords)
 
             val editor = preferences.edit()
-                .putLong(elapsedKey(userId), row.elapsedMs.coerceAtLeast(0L))
+                .putLong(terminalElapsedKey(userId), row.elapsedMs.coerceAtLeast(0L))
             if (startedAtMs != null) {
                 editor.putLong(startedKey(userId), startedAtMs)
             } else {
