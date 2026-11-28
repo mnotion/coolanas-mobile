@@ -342,6 +342,8 @@ class StudySyncManager(context: Context) {
         synchronized(timerCheckpointLock) {
             val storedRunningSubject = preferences.getString(runningSubjectKey(userId), null)
             val selected = preferences.getString(selectedSubjectKey(userId), null)
+            val previousCachedStart = preferences.getLong(startedKey(userId), 0L).takeIf { it > 0L }
+            val isNewRunningSession = startedAtMs != null && previousCachedStart != startedAtMs
             val subjectToRecord = storedRunningSubject ?: selected ?: "Unassigned"
             val completedRecords = if (
                 action in setOf("pause", "reset") &&
@@ -369,10 +371,10 @@ class StudySyncManager(context: Context) {
                 else editor.remove(runningSubjectKey(userId))
             } else if (startedAtMs == null) {
                 editor.remove(runningSubjectKey(userId))
-            } else if (storedRunningSubject == null && selected != null) {
+            } else if (startedAtMs != null && (storedRunningSubject == null || isNewRunningSession)) {
                 // A timer started on another Coolanas client has no subject column
-                // in the terminal, so use this device's selected subject as a fallback.
-                editor.putString(runningSubjectKey(userId), selected)
+                // in the terminal, so capture this device's selected subject for analytics.
+                editor.putString(runningSubjectKey(userId), selected ?: "Unassigned")
             }
             if (completedRecords.isNotEmpty()) {
                 editor.putString(queueKey(userId), encodeAnalyticsQueue(queue))
