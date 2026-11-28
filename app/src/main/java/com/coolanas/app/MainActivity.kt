@@ -1,6 +1,10 @@
 package com.coolanas.app
 
 import android.content.Intent
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -52,6 +56,7 @@ class MainActivity : ComponentActivity() {
     private var activeUserId: String? = null
     private var networkSyncSignal: (() -> Unit)? = null
     private var networkCallbackRegistered = false
+    private var messageNotificationNavigator: (() -> Unit)? = null
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
@@ -65,15 +70,29 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         studySyncManager = StudySyncManager(applicationContext)
+        CoolanasNotifications.createChannels(applicationContext)
         handleAuthDeeplink(intent)
         setContent {
-            var darkMode by remember { mutableStateOf(false) }
+            var messageNavigationRequest by remember { mutableIntStateOf(if (intent?.getBooleanExtra(EXTRA_OPEN_MESSAGES, false) == true) 1 else 0) }
             var accountProfile by remember { mutableStateOf(CoolanasAccountProfile()) }
-            CoolanasTheme(darkMode = darkMode) {
+            val notificationPermissionLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.RequestPermission(),
+                onResult = { }
+            )
+            LaunchedEffect(Unit) {
+                val prefs = getSharedPreferences("coolanas_notification_permission", MODE_PRIVATE)
+                val asked = prefs.getBoolean("asked_once", false)
+                if (Build.VERSION.SDK_INT >= 33 && !asked && !CoolanasNotifications.notificationsAllowed(this@MainActivity)) {
+                    prefs.edit().putBoolean("asked_once", true).apply()
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
+            CoolanasTheme(darkMode = true) {
                 var authenticatedUserId by remember { mutableStateOf<String?>(null) }
                 var isStartingLogin by remember { mutableStateOf(false) }
                 var errorLog by remember { mutableStateOf<String?>(null) }
                 var syncTrigger by remember { mutableIntStateOf(0) }
+                messageNotificationNavigator = { messageNavigationRequest++ }
                 val scope = rememberCoroutineScope()
 
                 LaunchedEffect(Unit) {
@@ -108,7 +127,6 @@ class MainActivity : ComponentActivity() {
                                 is SessionStatus.NotAuthenticated -> {
                                     authenticatedUserId = null
                                     activeUserId = null
-                                    darkMode = false
                                     accountProfile = CoolanasAccountProfile()
                                 }
                                 else -> Unit
@@ -140,9 +158,8 @@ class MainActivity : ComponentActivity() {
                             userId = userId,
                             repository = studySyncManager,
                             syncVersion = syncTrigger,
-                            darkMode = darkMode,
                             accountProfile = accountProfile,
-                            onThemeChanged = { darkMode = it },
+                            notificationNavigationTrigger = messageNavigationRequest,
                             onSignOut = {
                                 scope.launch {
                                     try {
@@ -217,6 +234,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        CoolanasAppRuntime.isForeground = true
         val connectivity = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
         try {
             if (!networkCallbackRegistered) {
@@ -235,6 +253,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        CoolanasAppRuntime.isForeground = false
         // The account-owned Supabase terminal keeps running independently of the app process.
         // WorkManager only flushes completed analytics events already queued locally.
         activeUserId?.let { userId ->
@@ -262,6 +281,9 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleAuthDeeplink(intent)
+        if (intent.getBooleanExtra(EXTRA_OPEN_MESSAGES, false)) {
+            messageNotificationNavigator?.invoke()
+        }
     }
 
     private fun handleAuthDeeplink(callbackIntent: Intent) {
@@ -297,5 +319,6 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         const val LOG_TAG = "CoolanasAuth"
+        const val EXTRA_OPEN_MESSAGES = "coolanas.open_messages"
     }
 }
