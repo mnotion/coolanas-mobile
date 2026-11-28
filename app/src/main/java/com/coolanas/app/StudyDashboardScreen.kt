@@ -16,6 +16,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.AnimatedContent
 import android.content.Context
@@ -539,20 +540,37 @@ fun StudyDashboardScreen(
             .background(animatedBackground),
         contentAlignment = Alignment.Center
     ) {
-        if (showAnalytics) {
-            StudyAnalyticsScreen(
-                snapshot = analyticsSnapshot,
-                subjects = subjects,
-                timer = timer,
-                serverNowMillis = now + serverClockOffsetMs,
-                activeSubject = timer.runningSubject ?: selectedSubject ?: "Unassigned",
-                loading = analyticsLoading,
-                profileAvatar = avatar,
-                onBack = { activePage = DashboardPage.Timer }
-            )
-        } else if (showMessages) {
-            StudyMessagingScreen(userId = userId)
-        } else {
+        AnimatedContent(
+            targetState = activePage,
+            transitionSpec = {
+                (fadeIn(tween(350, easing = FastOutSlowInEasing)) +
+                    slideInHorizontally(
+                        animationSpec = tween(520, easing = FastOutSlowInEasing),
+                        initialOffsetX = { it / 12 }
+                    )) togetherWith
+                    (fadeOut(tween(250, easing = FastOutSlowInEasing)) +
+                        slideOutHorizontally(
+                            animationSpec = tween(420, easing = FastOutSlowInEasing),
+                            targetOffsetX = { -it / 16 }
+                        ))
+            },
+            label = "coolanas-main-page-transition"
+        ) { page ->
+            when (page) {
+                DashboardPage.Analytics -> {
+                    StudyAnalyticsScreen(
+                        snapshot = analyticsSnapshot,
+                        subjects = subjects,
+                        timer = timer,
+                        serverNowMillis = now + serverClockOffsetMs,
+                        activeSubject = timer.runningSubject ?: selectedSubject ?: "Unassigned",
+                        loading = analyticsLoading,
+                        profileAvatar = avatar,
+                        onBack = { activePage = DashboardPage.Timer }
+                    )
+                }
+                DashboardPage.Messages -> StudyMessagingScreen(userId = userId)
+                DashboardPage.Timer -> {
         if (timerRunning || !selectedSubject.isNullOrBlank()) {
             Canvas(Modifier.fillMaxSize()) {
                 val radius = max(size.width, size.height) * 0.9f
@@ -961,6 +979,8 @@ fun StudyDashboardScreen(
                         }
                     }
                 }
+            }
+        }
             }
         }
         }
