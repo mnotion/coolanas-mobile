@@ -1143,11 +1143,11 @@ private fun CoolanasBottomNavigation(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Text(
-                        symbol,
-                        color = if (selected) Color(0xFFF0E8FF) else Color(0xFFB8BBC4),
-                        fontSize = 17.sp
-                    )
+                    if (page == DashboardPage.Messages) {
+                        MessagingNavigationGlyph(if (selected) Color(0xFFF0E8FF) else Color(0xFFB8BBC4))
+                    } else {
+                        Text(symbol, color = if (selected) Color(0xFFF0E8FF) else Color(0xFFB8BBC4), fontSize = 17.sp)
+                    }
                     Text(
                         label,
                         color = if (selected) Color(0xFFF0E8FF) else Color(0xFFB8BBC4),
@@ -1157,6 +1157,40 @@ private fun CoolanasBottomNavigation(
                 }
             }
         }
+    }
+}
+
+
+@Composable
+private fun MessagingNavigationGlyph(tint: Color) {
+    Canvas(Modifier.size(22.dp)) {
+        val stroke = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round)
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(size.width * 0.08f, size.height * 0.10f),
+            size = androidx.compose.ui.geometry.Size(size.width * 0.70f, size.height * 0.58f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx()),
+            style = stroke
+        )
+        val firstTail = Path().apply {
+            moveTo(size.width * 0.24f, size.height * 0.68f)
+            lineTo(size.width * 0.18f, size.height * 0.86f)
+            lineTo(size.width * 0.43f, size.height * 0.68f)
+        }
+        drawPath(firstTail, tint, style = stroke)
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(size.width * 0.34f, size.height * 0.34f),
+            size = androidx.compose.ui.geometry.Size(size.width * 0.58f, size.height * 0.50f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx()),
+            style = stroke
+        )
+        val secondTail = Path().apply {
+            moveTo(size.width * 0.70f, size.height * 0.83f)
+            lineTo(size.width * 0.78f, size.height * 0.96f)
+            lineTo(size.width * 0.83f, size.height * 0.83f)
+        }
+        drawPath(secondTail, tint, style = stroke)
     }
 }
 
