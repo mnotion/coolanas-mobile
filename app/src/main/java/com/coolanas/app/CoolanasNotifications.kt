@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import androidx.core.app.NotificationManagerCompat
 import android.Manifest
 import android.content.pm.PackageManager
 
@@ -44,7 +43,8 @@ object CoolanasNotifications {
     }
 
     fun notificationsAllowed(context: Context): Boolean {
-        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
+        val manager = context.getSystemService(NotificationManager::class.java)
+        if (!manager.areNotificationsEnabled()) return false
         return Build.VERSION.SDK_INT < 33 ||
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
     }
@@ -74,6 +74,6 @@ object CoolanasNotifications {
             .setCategory(Notification.CATEGORY_MESSAGE)
             .setColor(0xFF9B82C7.toInt())
             .build()
-        NotificationManagerCompat.from(context).notify(id, notification)
+        context.getSystemService(NotificationManager::class.java).notify(id, notification)
     }
 }
