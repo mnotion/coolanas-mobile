@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -22,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -120,6 +122,18 @@ private data class CoolanasDmRow(
             "This message uses an unsupported message format."
         }
 }
+
+private fun messagingFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedTextColor = Color(0xFFF3F2F7),
+    unfocusedTextColor = Color(0xFFF3F2F7),
+    focusedContainerColor = Color(0xFF1D2026),
+    unfocusedContainerColor = Color(0xFF1D2026),
+    focusedBorderColor = Color(0xFF9B82C7),
+    unfocusedBorderColor = Color(0xFF454952),
+    focusedPlaceholderColor = Color(0xFF969BA6),
+    unfocusedPlaceholderColor = Color(0xFF969BA6),
+    cursorColor = Color(0xFFBDA9E0)
+)
 
 @Composable
 fun StudyMessagingScreen(userId: String) {
@@ -320,8 +334,8 @@ fun StudyMessagingScreen(userId: String) {
     var friendTab by remember(userId) { mutableStateOf("search") }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 96.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier = Modifier.fillMaxSize().padding(start = 18.dp, top = 10.dp, end = 18.dp, bottom = 96.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         if (selectedFriend != null) {
             Row(
@@ -329,7 +343,7 @@ fun StudyMessagingScreen(userId: String) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Surface(Modifier.size(38.dp).noRippleClickable {
+                Surface(Modifier.size(40.dp).noRippleClickable {
                     typingHeartbeat?.cancel()
                     typingHeartbeat = null
                     broadcastTyping(false)
@@ -338,16 +352,16 @@ fun StudyMessagingScreen(userId: String) {
                     remoteTyping = false
                     messages = emptyList()
                     draft = ""
-                }, shape = CircleShape, color = Color(0xFFE7EEFC)) {
+                }, shape = CircleShape, color = Color(0xFF2D3039)) {
                     Box(contentAlignment = Alignment.Center) {
-                        Text("‹", color = Color(0xFF286BC6), fontSize = 30.sp, lineHeight = 30.sp)
+                        Text("‹", color = Color(0xFFBDA9E0), fontSize = 30.sp, lineHeight = 30.sp)
                     }
                 }
                 Column(Modifier.weight(1f)) {
                     Text(selectedFriend?.username.orEmpty(), color = MaterialTheme.colorScheme.onBackground, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Text(if (remoteTyping) "Typing…" else "Coolanas friend", color = if (remoteTyping) Color(0xFF2F80E7) else MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                 }
-                Text("ⓘ", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 22.sp)
+                Text("ⓘ", color = Color(0xFF969BA6), fontSize = 22.sp)
             }
 
             if (conversationOpening || conversationId == null) {
@@ -357,32 +371,31 @@ fun StudyMessagingScreen(userId: String) {
             } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f).fillMaxWidth()
-                        .background(Color(0xFFF8FAFE), RoundedCornerShape(18.dp))
-                        .padding(horizontal = 12.dp, vertical = 14.dp),
+                        .padding(horizontal = 2.dp, vertical = 8.dp),
                     state = messageListState,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     if (messages.isEmpty()) item {
                         Box(Modifier.fillMaxWidth().padding(vertical = 36.dp), contentAlignment = Alignment.Center) {
-                            Text("Start the conversation", color = Color(0xFF7C8798), fontSize = 13.sp)
+                            Text("Start the conversation", color = Color(0xFF969BA6), fontSize = 13.sp)
                         }
                     }
                     items(messages, key = { it.id }) { message ->
                         val mine = message.senderId == userId
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start, verticalAlignment = Alignment.Bottom) {
                             Column(
-                                modifier = Modifier.fillMaxWidth(0.82f).background(
-                                    if (mine) Color(0xFFDCE9FF) else Color(0xFFE9ECF2),
+                                modifier = Modifier.fillMaxWidth(0.76f).background(
+                                    if (mine) Color(0xFF3D3552) else Color(0xFF292D35),
                                     RoundedCornerShape(topStart = 17.dp, topEnd = 17.dp, bottomEnd = if (mine) 5.dp else 17.dp, bottomStart = if (mine) 17.dp else 5.dp)
-                                ).padding(horizontal = 13.dp, vertical = 9.dp)
+                                ).padding(horizontal = 14.dp, vertical = 11.dp)
                             ) {
-                                Text(message.messageText(), color = Color(0xFF172033), fontSize = 14.sp, lineHeight = 20.sp)
+                                Text(message.messageText(), color = Color(0xFFF2F1F6), fontSize = 15.sp, lineHeight = 21.sp)
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                                     val time = runCatching { Instant.parse(message.createdAt).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm")) }.getOrDefault("")
-                                    Text(time, color = Color(0xFF66758B), fontSize = 10.sp)
+                                    Text(time, color = Color(0xFFADB2BE), fontSize = 10.sp)
                                     if (mine) {
                                         Spacer(Modifier.width(4.dp))
-                                        Text(if (message.readAt == null) "✓" else "✓✓", color = Color(0xFF2F80E7), fontSize = 11.sp)
+                                        Text(if (message.readAt == null) "✓" else "✓✓", color = Color(0xFFC5B2E8), fontSize = 11.sp)
                                     }
                                 }
                             }
@@ -390,8 +403,8 @@ fun StudyMessagingScreen(userId: String) {
                     }
                     if (remoteTyping) item {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-                            Surface(shape = RoundedCornerShape(18.dp), color = Color(0xFFE9ECF2)) {
-                                Text("•••", Modifier.padding(horizontal = 14.dp, vertical = 8.dp), color = Color(0xFF8995A8), fontSize = 14.sp)
+                            Surface(shape = RoundedCornerShape(18.dp), color = Color(0xFF292D35)) {
+                                Text("•••", Modifier.padding(horizontal = 14.dp, vertical = 8.dp), color = Color(0xFFBDA9E0), fontSize = 14.sp)
                             }
                         }
                     }
@@ -412,10 +425,11 @@ fun StudyMessagingScreen(userId: String) {
                                 typingHeartbeat = null
                             }
                         },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).heightIn(min = 52.dp, max = 112.dp),
                         placeholder = { Text("Write a message…") },
                         maxLines = 4,
-                        shape = RoundedCornerShape(28.dp)
+                        shape = RoundedCornerShape(24.dp),
+                        colors = messagingFieldColors()
                     )
                     Surface(Modifier.size(48.dp).noRippleClickable {
                         val outgoing = draft.trim()
@@ -452,7 +466,7 @@ fun StudyMessagingScreen(userId: String) {
                                 } finally { sending = false }
                             }
                         }
-                    }, shape = CircleShape, color = if (draft.isNotBlank() && !sending) Color(0xFF347FDF) else Color(0xFFB9C7DA)) {
+                    }, shape = CircleShape, color = if (draft.isNotBlank() && !sending) Color(0xFF9B82C7) else Color(0xFF3A3E47)) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("➤", color = Color.White, fontSize = 21.sp) }
                     }
                 }
@@ -460,31 +474,31 @@ fun StudyMessagingScreen(userId: String) {
         } else if (addFriendMode) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("‹", modifier = Modifier.noRippleClickable { addFriendMode = false }.padding(end = 12.dp), color = Color(0xFF347FDF), fontSize = 30.sp)
-                Text("Add friend", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onBackground, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Text("Add friend", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onBackground, fontSize = 23.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 Spacer(Modifier.width(30.dp))
             }
-            Row(Modifier.fillMaxWidth().background(Color(0xFFF0F3F9), RoundedCornerShape(14.dp)).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.fillMaxWidth().background(Color(0xFF24262D), RoundedCornerShape(18.dp)).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 listOf("search" to "Search", "requests" to "Requests", "pending" to "Pending").forEach { (tab, label) ->
                     Surface(Modifier.weight(1f).noRippleClickable {
                         friendTab = tab
                         if (tab != "search") scope.launch { runCatching { loadRequests() } }
-                    }, shape = RoundedCornerShape(11.dp), color = if (friendTab == tab) Color(0xFFDCE9FF) else Color.Transparent) {
+                    }, shape = RoundedCornerShape(14.dp), color = if (friendTab == tab) Color(0xFF3D3552) else Color.Transparent) {
                         Box(Modifier.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
                             val tabLabel = if (tab == "requests" && incomingRequests.isNotEmpty()) "$label ${incomingRequests.size}" else label
-                            Text(tabLabel, color = if (friendTab == tab) Color(0xFF246CCB) else Color(0xFF56647A), fontSize = 12.sp, fontWeight = if (friendTab == tab) FontWeight.SemiBold else FontWeight.Normal)
+                            Text(tabLabel, color = if (friendTab == tab) Color(0xFFE1D5F3) else Color(0xFFADB2BE), fontSize = 12.sp, fontWeight = if (friendTab == tab) FontWeight.SemiBold else FontWeight.Normal)
                         }
                     }
                 }
             }
             if (friendTab == "search") {
-                OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, placeholder = { Text("Search by username…") }, shape = RoundedCornerShape(26.dp))
+                OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp), singleLine = true, placeholder = { Text("Search by username…") }, shape = RoundedCornerShape(22.dp), colors = messagingFieldColors())
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     if (search.trim().length < 2) item { Text("Enter at least 2 characters to find people.", Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) }
                     else if (searchResults.isEmpty()) item { Text("No users found.", Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) }
                     items(searchResults, key = { it.userId }) { person ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Surface(Modifier.size(42.dp), shape = CircleShape, color = Color(0xFFE2EAF7)) {
-                                Box(contentAlignment = Alignment.Center) { Text(person.username.take(1).uppercase(), color = Color(0xFF315F9B), fontWeight = FontWeight.Bold) }
+                            Surface(Modifier.size(42.dp), shape = CircleShape, color = Color(0xFF3D3552)) {
+                                Box(contentAlignment = Alignment.Center) { Text(person.username.take(1).uppercase(), color = Color(0xFFE1D5F3), fontWeight = FontWeight.Bold) }
                             }
                             Column(Modifier.weight(1f)) {
                                 Text(person.username, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
@@ -501,11 +515,11 @@ fun StudyMessagingScreen(userId: String) {
                                         loadRequests()
                                     } catch (exception: Exception) { error = exception.message ?: "Could not send friend request." }
                                 }
-                            }, shape = RoundedCornerShape(10.dp), color = if (isFriend || isPending) Color(0xFFE8ECF2) else Color(0xFF347FDF)) {
-                                Text(if (isFriend) "Friends" else if (isPending) "Pending" else "＋ Add friend", Modifier.padding(horizontal = 12.dp, vertical = 9.dp), color = if (isFriend || isPending) Color(0xFF68758A) else Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            }, shape = RoundedCornerShape(10.dp), color = if (isFriend || isPending) Color(0xFF30343D) else Color(0xFF80699F)) {
+                                Text(if (isFriend) "Friends" else if (isPending) "Pending" else "＋ Add friend", Modifier.padding(horizontal = 12.dp, vertical = 9.dp), color = if (isFriend || isPending) Color(0xFFADB2BE) else Color(0xFFF8F5FC), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                             }
                         }
-                        androidx.compose.material3.HorizontalDivider(color = Color(0xFFE8ECF2))
+                        androidx.compose.material3.HorizontalDivider(color = Color(0xFF343842))
                     }
                 }
             } else {
@@ -514,8 +528,8 @@ fun StudyMessagingScreen(userId: String) {
                     if (shownRequests.isEmpty()) item { Text(if (friendTab == "requests") "No new friend requests." else "No pending requests.", Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) }
                     items(shownRequests, key = { it.friendshipId }) { request ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Surface(Modifier.size(42.dp), shape = CircleShape, color = Color(0xFFE2EAF7)) {
-                                Box(contentAlignment = Alignment.Center) { Text(request.username.take(1).uppercase(), color = Color(0xFF315F9B), fontWeight = FontWeight.Bold) }
+                            Surface(Modifier.size(42.dp), shape = CircleShape, color = Color(0xFF3D3552)) {
+                                Box(contentAlignment = Alignment.Center) { Text(request.username.take(1).uppercase(), color = Color(0xFFE1D5F3), fontWeight = FontWeight.Bold) }
                             }
                             Column(Modifier.weight(1f)) {
                                 Text(request.username, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
@@ -531,8 +545,8 @@ fun StudyMessagingScreen(userId: String) {
                                             loadRequests(); loadFriends(); friendListVersion++
                                         }.onFailure { error = it.message ?: "Could not accept request." }
                                     }
-                                }, shape = RoundedCornerShape(10.dp), color = Color(0xFF347FDF)) {
-                                    Text("Accept", Modifier.padding(horizontal = 12.dp, vertical = 9.dp), color = Color.White, fontSize = 11.sp)
+                                }, shape = RoundedCornerShape(10.dp), color = Color(0xFF80699F)) {
+                                    Text("Accept", Modifier.padding(horizontal = 12.dp, vertical = 9.dp), color = Color(0xFFF8F5FC), fontSize = 11.sp)
                                 }
                                 Text("Decline", Modifier.noRippleClickable {
                                     scope.launch {
@@ -555,7 +569,7 @@ fun StudyMessagingScreen(userId: String) {
                                 }.padding(8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                             }
                         }
-                        androidx.compose.material3.HorizontalDivider(color = Color(0xFFE8ECF2))
+                        androidx.compose.material3.HorizontalDivider(color = Color(0xFF343842))
                     }
                 }
             }
@@ -565,15 +579,15 @@ fun StudyMessagingScreen(userId: String) {
                     Text("Messages", color = MaterialTheme.colorScheme.onBackground, fontSize = 25.sp, fontWeight = FontWeight.Bold)
                     Text("Your conversations", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                 }
-                Surface(Modifier.size(40.dp).noRippleClickable { addFriendMode = true; friendTab = "search"; search = "" }, shape = CircleShape, color = Color(0xFFE5EEFD)) {
-                    Box(contentAlignment = Alignment.Center) { Text("＋", color = Color(0xFF246CCB), fontSize = 24.sp) }
+                Surface(Modifier.size(42.dp).noRippleClickable { addFriendMode = true; friendTab = "search"; search = "" }, shape = CircleShape, color = Color(0xFF30343D)) {
+                    Box(contentAlignment = Alignment.Center) { Text("＋", color = Color(0xFFE1D5F3), fontSize = 24.sp) }
                 }
                 Spacer(Modifier.width(8.dp))
-                Surface(Modifier.size(40.dp).noRippleClickable { addFriendMode = true; friendTab = "requests"; scope.launch { runCatching { loadRequests() } } }, shape = CircleShape, color = Color(0xFFE5EEFD)) {
-                    Box(contentAlignment = Alignment.Center) { Text("♧", color = Color(0xFF246CCB), fontSize = 21.sp) }
+                Surface(Modifier.size(42.dp).noRippleClickable { addFriendMode = true; friendTab = "requests"; scope.launch { runCatching { loadRequests() } } }, shape = CircleShape, color = Color(0xFF30343D)) {
+                    Box(contentAlignment = Alignment.Center) { Text("♧", color = Color(0xFFE1D5F3), fontSize = 21.sp) }
                 }
             }
-            OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, placeholder = { Text("Search conversations…") }, shape = RoundedCornerShape(24.dp))
+            OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp), singleLine = true, placeholder = { Text("Search conversations…") }, shape = RoundedCornerShape(22.dp), colors = messagingFieldColors())
             if (loading) {
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("Loading conversations…", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp) }
             } else if (friends.isEmpty()) {
@@ -605,9 +619,9 @@ fun StudyMessagingScreen(userId: String) {
                                     error = exception.message ?: "Could not open this conversation."
                                 } finally { conversationOpening = false }
                             }
-                        }.padding(vertical = 11.dp, horizontal = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        }.padding(vertical = 8.dp, horizontal = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Surface(Modifier.size(54.dp), shape = CircleShape, color = Color(0xFFE5ECF8)) {
-                                Box(contentAlignment = Alignment.Center) { Text(friend.username.take(1).uppercase(), color = Color(0xFF315F9B), fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+                                Box(contentAlignment = Alignment.Center) { Text(friend.username.take(1).uppercase(), color = Color(0xFFE1D5F3), fontSize = 17.sp, fontWeight = FontWeight.Bold) }
                             }
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text(friend.username, color = MaterialTheme.colorScheme.onBackground, fontSize = 15.sp, fontWeight = FontWeight.Bold)
@@ -618,7 +632,7 @@ fun StudyMessagingScreen(userId: String) {
                                 Text(if (unread > 9) "9+" else unread.toString(), Modifier.padding(horizontal = 6.dp, vertical = 3.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             }
                         }
-                        androidx.compose.material3.HorizontalDivider(color = Color(0xFFE9EDF3))
+                        androidx.compose.material3.HorizontalDivider(color = Color(0xFF343842))
                     }
                 }
             }
