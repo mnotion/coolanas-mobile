@@ -26,6 +26,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -72,6 +74,7 @@ data class StudyAnalyticsRecord(
     val eventId: String
 )
 
+@Serializable
 data class StudyAnalyticsTask(
     val id: String,
     val text: String,
@@ -79,6 +82,7 @@ data class StudyAnalyticsTask(
     val completedAt: String? = null
 )
 
+@Serializable
 data class StudyAnalyticsTaskDay(
     val date: String,
     val locked: Boolean,
@@ -86,6 +90,7 @@ data class StudyAnalyticsTaskDay(
     val tasks: List<StudyAnalyticsTask>
 )
 
+@Serializable
 data class StudyAnalyticsSnapshot(
     val daily: Map<String, Long> = emptyMap(),
     val dailySubjects: Map<String, Map<String, Long>> = emptyMap(),
@@ -93,6 +98,7 @@ data class StudyAnalyticsSnapshot(
     val taskDays: Map<String, StudyAnalyticsTaskDay> = emptyMap(),
     val tasks: List<StudyAnalyticsTask> = emptyList(),
     val updatedAt: String? = null,
+    val fromCache: Boolean = false,
     val legacyImportPending: Boolean = false,
     val mirrorPending: Boolean = false
 )
@@ -412,7 +418,12 @@ class StudySyncManager(context: Context) {
     /** Reads the account analytics document from the same endpoint used by the website. */
     suspend fun loadAnalytics(userId: String): StudyAnalyticsSnapshot = withContext(Dispatchers.IO) {
         require(userId.isNotBlank())
-        val result = invokeFunction(buildJsonObject {
+        val cacheKey = key(userId, "analytics_snapshot")
+        val cachedSnapshot = preferences.getString(cacheKey, null)?.let { cached ->
+            runCatching { Json.decodeFromString<StudyAnalyticsSnapshot>(cached) }.getOrNull()
+        }
+        try {
+            val result = invokeFunction(buildJsonObject {
             put("action", JsonPrimitive("analytics_get"))
         })
 
@@ -435,11 +446,11 @@ class StudySyncManager(context: Context) {
                 hour.toIntOrNull()?.takeIf { it in 0..23 }?.let { it to duration }
             }.toMap()
         }
-        val taskData = runCatching {
-            invokeFunction(buildJsonObject {
-                put("action", JsonPrimitive("tasks_get"))
-            })
-        }.getOrNull()
+            val taskData = runCatching {
+                invokeFunction(buildJsonObject {
+                    put("action", JsonPrimitive("tasks_get"))
+                })
+            }.getOrNull()
         fun parseTask(element: JsonElement): StudyAnalyticsTask? {
             val obj = element as? JsonObject ?: return null
             val text = obj["text"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
@@ -451,33 +462,45 @@ class StudySyncManager(context: Context) {
                 completedAt = obj["completedAt"]?.jsonPrimitive?.contentOrNull
             )
         }
-        val tasks = (taskData?.get("tasks") as? JsonArray)
-            ?.mapNotNull(::parseTask).orEmpty()
-        val taskDays = (taskData?.get("taskDays") as? JsonArray)
-            ?.mapNotNull { element ->
-                val obj = element as? JsonObject ?: return@mapNotNull null
-                val date = obj["date"]?.jsonPrimitive?.contentOrNull
-                    ?.takeIf { Regex("^\\d{4}-\\d{2}-\\d{2}$").matches(it) }
-                    ?: return@mapNotNull null
-                val dayTasks = (obj["tasks"] as? JsonArray)?.mapNotNull(::parseTask).orEmpty()
-                date to StudyAnalyticsTaskDay(
-                    date = date,
-                    locked = obj["locked"]?.jsonPrimitive?.booleanOrNull == true,
-                    updatedAt = obj["updatedAt"]?.jsonPrimitive?.contentOrNull,
-                    tasks = dayTasks
-                )
-            }?.toMap().orEmpty()
+            val tasks = if (taskData != null) {
+                (taskData["tasks"] as? JsonArray)?.mapNotNull(::parseTask).orEmpty()
+            } else {
+                cachedSnapshot?.tasks.orEmpty()
+            }
+            val taskDays = if (taskData != null) {
+                (taskData["taskDays"] as? JsonArray)
+                    ?.mapNotNull { element ->
+                        val obj = element as? JsonObject ?: return@mapNotNull null
+                        val date = obj["date"]?.jsonPrimitive?.contentOrNull
+                            ?.takeIf { Regex("^\\d{4}-\\d{2}-\\d{2}$").matches(it) }
+                            ?: return@mapNotNull null
+                        val dayTasks = (obj["tasks"] as? JsonArray)?.mapNotNull(::parseTask).orEmpty()
+                        date to StudyAnalyticsTaskDay(
+                            date = date,
+                            locked = obj["locked"]?.jsonPrimitive?.booleanOrNull == true,
+                            updatedAt = obj["updatedAt"]?.jsonPrimitive?.contentOrNull,
+                            tasks = dayTasks
+                        )
+                    }?.toMap().orEmpty()
+            } else {
+                cachedSnapshot?.taskDays.orEmpty()
+            }
 
-        StudyAnalyticsSnapshot(
-            daily = longMap(result["daily"]),
-            dailySubjects = nestedLongMap(result["dailySubjects"]),
-            dailyHours = hourly,
-            taskDays = taskDays,
-            tasks = tasks,
-            updatedAt = result["updatedAt"]?.jsonPrimitive?.contentOrNull,
-            legacyImportPending = result["legacyImportPending"]?.jsonPrimitive?.booleanOrNull == true,
-            mirrorPending = result["mirrorPending"]?.jsonPrimitive?.booleanOrNull == true
-        )
+            val snapshot = StudyAnalyticsSnapshot(
+                daily = longMap(result["daily"]),
+                dailySubjects = nestedLongMap(result["dailySubjects"]),
+                dailyHours = hourly,
+                taskDays = taskDays,
+                tasks = tasks,
+                updatedAt = result["updatedAt"]?.jsonPrimitive?.contentOrNull,
+                legacyImportPending = result["legacyImportPending"]?.jsonPrimitive?.booleanOrNull == true,
+                mirrorPending = result["mirrorPending"]?.jsonPrimitive?.booleanOrNull == true
+            )
+            preferences.edit().putString(cacheKey, Json.encodeToString(snapshot)).apply()
+            snapshot
+        } catch (error: Exception) {
+            cachedSnapshot?.copy(fromCache = true) ?: throw error
+        }
     }
 
     private fun downloadAvatar(imageUrl: String): Bitmap? {
