@@ -847,22 +847,22 @@ fun StudyDashboardScreen(
                 items(subjects, key = { it.name }) { subject ->
                     Box {
                         val chosen = selectedSubject == subject.name
+                        var lastSubjectTapAt by remember(subject.name) { mutableLongStateOf(0L) }
                         Surface(
-                            modifier = Modifier.noRippleCombinedClickable(
-                                onClick = {
-                                    inlineEditingSubject?.let { finishInlineSubjectEdit(it) }
-                                    selectedSubject = subject.name
-                                    repository.selectSubject(userId, subject.name)
-                                },
-                                onDoubleClick = {
+                            modifier = Modifier.noRippleClickable {
+                                val tappedAt = android.os.SystemClock.elapsedRealtime()
+                                if (lastSubjectTapAt > 0L && tappedAt - lastSubjectTapAt <= 350L) {
                                     inlineEditingSubject = subject.name
                                     inlineSubjectDraft = subject.name
                                     subjectMenu = null
-                                },
-                                onLongClick = {
-                                    subjectMenu = subject.name
+                                    lastSubjectTapAt = 0L
+                                } else {
+                                    lastSubjectTapAt = tappedAt
+                                    inlineEditingSubject?.let { finishInlineSubjectEdit(it) }
+                                    selectedSubject = subject.name
+                                    repository.selectSubject(userId, subject.name)
                                 }
-                            ),
+                            },
                             shape = CircleShape,
                             color = if (chosen || !darkMode) {
                                 Color(StudySyncManager.subjectPalette[subject.color])
