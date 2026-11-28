@@ -270,7 +270,7 @@ fun StudyDashboardScreen(
                 }
                 timer = terminal.timer
                 serverClockOffsetMs = terminal.serverClockOffsetMs
-                updateTimerNotification(terminal.timer, terminal.serverClockOffsetMs)
+                updateStudyTimerNotification(appContext, terminal.timer, terminal.serverClockOffsetMs, selectedSubject)
                 stopwatchReady = true
                 stopwatchError = null
             } catch (error: Exception) {
@@ -335,7 +335,7 @@ fun StudyDashboardScreen(
             }
             timer = latest.timer
             serverClockOffsetMs = latest.serverClockOffsetMs
-            updateTimerNotification(latest.timer, latest.serverClockOffsetMs)
+            updateStudyTimerNotification(appContext, latest.timer, latest.serverClockOffsetMs, selectedSubject)
             stopwatchReady = true
             stopwatchError = null
         }
