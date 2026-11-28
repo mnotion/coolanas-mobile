@@ -74,14 +74,17 @@ private data class CoolanasFriendRequestRow(
     @SerialName("user_id") val userId: String,
     val username: String,
     val direction: String,
-    @SerialName("created_at") val createdAt: String
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("google_avatar") val googleAvatar: String? = null
 )
 
 @Serializable
 private data class CoolanasFriendSearchRow(
     @SerialName("user_id") val userId: String,
     val username: String,
-    @SerialName("friendship_status") val friendshipStatus: String? = null
+    @SerialName("friendship_status") val friendshipStatus: String? = null,
+    @SerialName("google_avatar") val googleAvatar: String? = null,
+    @SerialName("matched_username") val matchedUsername: String? = null
 )
 
 @Serializable
@@ -230,7 +233,7 @@ fun StudyMessagingScreen(userId: String) {
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = Modifier.fillMaxSize().padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Row(
