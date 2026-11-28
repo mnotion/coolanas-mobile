@@ -620,7 +620,7 @@ fun StudyMessagingScreen(userId: String) {
                                 } finally { conversationOpening = false }
                             }
                         }.padding(vertical = 8.dp, horizontal = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Surface(Modifier.size(54.dp), shape = CircleShape, color = Color(0xFFE5ECF8)) {
+                            Surface(Modifier.size(48.dp), shape = CircleShape, color = Color(0xFF3D3552)) {
                                 Box(contentAlignment = Alignment.Center) { Text(friend.username.take(1).uppercase(), color = Color(0xFFE1D5F3), fontSize = 17.sp, fontWeight = FontWeight.Bold) }
                             }
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
