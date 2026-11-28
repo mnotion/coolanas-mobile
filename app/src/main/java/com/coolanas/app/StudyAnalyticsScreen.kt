@@ -144,6 +144,7 @@ fun StudyAnalyticsScreen(
                 .padding(top = 34.dp, bottom = 22.dp)
                 .height(68.dp)
         ) {
+            val backArrowColor = MaterialTheme.colorScheme.onSurface
             Surface(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
@@ -161,7 +162,7 @@ fun StudyAnalyticsScreen(
                         lineTo(size.width * 0.30f, size.height * 0.5f)
                         lineTo(size.width * 0.72f, size.height * 0.92f)
                     }
-                    drawPath(path, MaterialTheme.colorScheme.onSurface, style = Stroke(width = 2.5.dp.toPx()))
+                    drawPath(path, backArrowColor, style = Stroke(width = 2.5.dp.toPx()))
                 }
             }
             Column(
@@ -251,9 +252,11 @@ fun StudyAnalyticsScreen(
                         month = month,
                         selectedDate = selectedDate,
                         today = today,
-                        onMonthChanged = { next ->
+                        onMonthChanged = { requested ->
+                            val latestMonth = YearMonth.from(today)
+                            val next = if (requested > latestMonth) latestMonth else requested
                             month = next
-                            selectedDate = next.atDay(1).coerceAtMost(today)
+                            selectedDate = if (next == latestMonth) today else next.atDay(1)
                         },
                         onDateSelected = { selectedDate = it }
                     )
@@ -317,17 +320,19 @@ private fun MonthlyAnalytics(
     onMonthChanged: (YearMonth) -> Unit
 ) {
     val today = LocalDate.now()
-    val days = (1..month.lengthOfMonth()).map { month.atDay(it) }
+    val monthDays = (1..month.lengthOfMonth()).map { month.atDay(it) }
     val prefix = month.toString()
-    val values = days.map { snapshot.daily[it.toString()] ?: 0L }
+    val values = monthDays.map { snapshot.daily[it.toString()] ?: 0L }
+    val chartDays = (179 downTo 0).map { today.minusDays(it.toLong()) }
+    val chartValues = chartDays.map { snapshot.daily[it.toString()] ?: 0L }
     val total = values.sum()
     val studiedDays = values.count { it >= 60_000L }
     val elapsedDays = if (month == YearMonth.from(today)) today.dayOfMonth else month.lengthOfMonth()
     val dailyAverage = if (elapsedDays > 0) total / elapsedDays else 0L
     val bestDay = values.maxOrNull() ?: 0L
     val dailyScroll = rememberLazyListState()
-    LaunchedEffect(month, days.size) {
-        dailyScroll.scrollToItem(max(0, days.size - 7))
+    LaunchedEffect(today) {
+        dailyScroll.scrollToItem(max(0, chartDays.size - 7))
     }
 
     Column(
@@ -364,15 +369,15 @@ private fun MonthlyAnalytics(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp
             )
-            val maxValue = values.maxOrNull()?.coerceAtLeast(60_000L) ?: 60_000L
+            val maxValue = chartValues.maxOrNull()?.coerceAtLeast(60_000L) ?: 60_000L
             LazyRow(
                 state = dailyScroll,
                 modifier = Modifier.fillMaxWidth().height(184.dp),
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
-                itemsIndexed(days, key = { _, date -> date.toString() }) { index, date ->
-                    val amount = values[index]
+                itemsIndexed(chartDays, key = { _, date -> date.toString() }) { index, date ->
+                    val amount = chartValues[index]
                     val target = (amount.toFloat() / maxValue.toFloat()).coerceIn(0f, 1f)
                     val animated by animateFloatAsState(
                         targetValue = target,
