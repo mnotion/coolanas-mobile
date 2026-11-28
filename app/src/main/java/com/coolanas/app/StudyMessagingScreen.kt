@@ -314,406 +314,317 @@ fun StudyMessagingScreen(userId: String) {
         if (messages.isNotEmpty()) messageListState.animateScrollToItem(messages.lastIndex)
     }
 
+    val incomingRequests = requests.filter { it.direction == "incoming" }
+    val outgoingRequests = requests.filter { it.direction == "outgoing" }
+    var addFriendMode by remember(userId) { mutableStateOf(false) }
+    var friendTab by remember(userId) { mutableStateOf("search") }
+
     Column(
         modifier = Modifier.fillMaxSize().padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 96.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column {
-                Text("Messages", color = MaterialTheme.colorScheme.onBackground, fontSize = 24.sp, fontWeight = FontWeight.Medium)
-                Text("Coolanas friends", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-            }
-            Text(
-                "Requests ${requests.count { it.direction == "incoming" }}",
-                modifier = Modifier.noRippleClickable {
-                    requestsVisible = !requestsVisible
-                    if (requestsVisible) scope.launch { runCatching { loadRequests() } }
-                }.padding(10.dp),
-                color = Color(0xFFD7C8F5),
-                fontSize = 12.sp
-            )
-        }
-
-        OutlinedTextField(
-            value = search,
-            onValueChange = { search = it },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            placeholder = { Text("Find a Coolanas user") },
-            label = { Text("Search friends") }
-        )
-
-        if (search.trim().length >= 2) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = Color(0xFF24272E),
-                shape = RoundedCornerShape(16.dp)
+        if (selectedFriend != null) {
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (searchResults.isEmpty()) Text("No matching users.", color = Color(0xFFB9BEC8), fontSize = 12.sp)
-                    searchResults.forEach { person ->
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(person.username, color = Color.White, modifier = Modifier.weight(1f))
-                            val canAdd = person.friendshipStatus != "pending" && friends.none { it.friendId == person.userId }
-                            Text(
-                                if (person.friendshipStatus == "pending") "Pending" else "Add",
-                                modifier = Modifier.noRippleClickable {
-                                    if (canAdd) scope.launch {
-                                        try {
-                                            SupabaseClientProvider.client.postgrest.rpc(
-                                                "coolanas_friend_request",
-                                                buildJsonObject { put("p_recipient_id", JsonPrimitive(person.userId)) }
-                                            )
-                                            search = ""
-                                            friendListVersion++
-                                        } catch (exception: Exception) {
-                                            error = exception.message ?: "Could not send friend request."
-                                        }
-                                    }
-                                }.padding(10.dp),
-                                color = if (canAdd) Color(0xFFD7C8F5) else Color(0xFF858B96),
-                                fontSize = 12.sp
-                            )
-                        }
+                Surface(Modifier.size(38.dp).noRippleClickable {
+                    typingHeartbeat?.cancel()
+                    typingHeartbeat = null
+                    broadcastTyping(false)
+                    selectedFriend = null
+                    conversationId = null
+                    remoteTyping = false
+                    messages = emptyList()
+                    draft = ""
+                }, shape = CircleShape, color = Color(0xFFE7EEFC)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text("‹", color = Color(0xFF286BC6), fontSize = 30.sp, lineHeight = 30.sp)
                     }
                 }
+                Column(Modifier.weight(1f)) {
+                    Text(selectedFriend?.username.orEmpty(), color = MaterialTheme.colorScheme.onBackground, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text(if (remoteTyping) "Typing…" else "Coolanas friend", color = if (remoteTyping) Color(0xFF2F80E7) else MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                }
+                Text("ⓘ", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 22.sp)
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth().height(82.dp),
-                horizontalAlignment = Alignment.Start,
-                verticalArrangement = Arrangement.Center
-            ) {
-                item {
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        friends.forEach { friend ->
-                            Box {
-                                Surface(
-                                    modifier = Modifier.noRippleClickable {
-                                        scope.launch {
-                                            selectedFriend = friend
-                                            conversationId = null
-                                            conversationOpening = true
-                                            messages = emptyList()
-                                            remoteTyping = false
-                                            draft = ""
-                                            error = null
-                                            try {
-                                                val result = withContext(Dispatchers.IO) {
-                                                    SupabaseClientProvider.client.postgrest.rpc(
-                                                        "coolanas_dm_open_conversation",
-                                                        buildJsonObject { put("p_friend_id", JsonPrimitive(friend.friendId)) }
-                                                    )
-                                                }
-                                                conversationId = result.decodeAs<String>().trim('"')
-                                                refreshUnreadCounts()
-                                            } catch (exception: Exception) {
-                                                error = exception.message ?: "Could not open this conversation."
-                                            } finally {
-                                                conversationOpening = false
-                                            }
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(18.dp),
-                                    color = if (selectedFriend?.friendId == friend.friendId) Color(0xFF514568) else Color(0xFF262A31),
-                                    border = androidx.compose.foundation.BorderStroke(
-                                        1.dp,
-                                        if (selectedFriend?.friendId == friend.friendId) Color(0xFFB8A3E6) else Color(0xFF3C414A)
-                                    )
-                                ) {
-                                    Text(
-                                        friend.username,
-                                        modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
-                                        color = Color.White,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                                val unread = unreadCounts[friend.friendId] ?: 0
-                                if (unread > 0) {
-                                    Surface(
-                                        modifier = Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-4).dp),
-                                        shape = CircleShape,
-                                        color = Color(0xFFE35D6A)
-                                    ) {
-                                        Text(
-                                            if (unread > 9) "9+" else unread.toString(),
-                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
-                                            color = Color.White,
-                                            fontSize = 9.sp
-                                        )
+
+            if (conversationOpening || conversationId == null) {
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text(if (conversationOpening) "Opening conversation…" else "Could not open conversation. Go back and try again.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth()
+                        .background(Color(0xFFF8FAFE), RoundedCornerShape(18.dp))
+                        .padding(horizontal = 12.dp, vertical = 14.dp),
+                    state = messageListState,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (messages.isEmpty()) item {
+                        Box(Modifier.fillMaxWidth().padding(vertical = 36.dp), contentAlignment = Alignment.Center) {
+                            Text("Start the conversation", color = Color(0xFF7C8798), fontSize = 13.sp)
+                        }
+                    }
+                    items(messages, key = { it.id }) { message ->
+                        val mine = message.senderId == userId
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start, verticalAlignment = Alignment.Bottom) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(0.82f).background(
+                                    if (mine) Color(0xFFDCE9FF) else Color(0xFFE9ECF2),
+                                    RoundedCornerShape(topStart = 17.dp, topEnd = 17.dp, bottomEnd = if (mine) 5.dp else 17.dp, bottomStart = if (mine) 17.dp else 5.dp)
+                                ).padding(horizontal = 13.dp, vertical = 9.dp)
+                            ) {
+                                Text(message.messageText(), color = Color(0xFF172033), fontSize = 14.sp, lineHeight = 20.sp)
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                                    val time = runCatching { Instant.parse(message.createdAt).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm")) }.getOrDefault("")
+                                    Text(time, color = Color(0xFF66758B), fontSize = 10.sp)
+                                    if (mine) {
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(if (message.readAt == null) "✓" else "✓✓", color = Color(0xFF2F80E7), fontSize = 11.sp)
                                     }
                                 }
                             }
                         }
                     }
-                }
-            }
-        }
-
-        if (requestsVisible) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0xFF24272E)
-            ) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (requests.isEmpty()) Text("No pending friend requests.", color = Color(0xFFB9BEC8), fontSize = 12.sp)
-                    requests.forEach { request ->
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(request.username, color = Color.White, fontSize = 14.sp)
-                                Text(request.direction, color = Color(0xFF9EA5B2), fontSize = 10.sp)
+                    if (remoteTyping) item {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+                            Surface(shape = RoundedCornerShape(18.dp), color = Color(0xFFE9ECF2)) {
+                                Text("•••", Modifier.padding(horizontal = 14.dp, vertical = 8.dp), color = Color(0xFF8995A8), fontSize = 14.sp)
                             }
-                            if (request.direction == "incoming") {
-                                Text(
-                                    "Accept",
-                                    modifier = Modifier.noRippleClickable {
-                                        scope.launch {
-                                            try {
-                                                SupabaseClientProvider.client.postgrest.rpc(
-                                                    "coolanas_friend_respond",
-                                                    buildJsonObject {
-                                                        put("p_friendship_id", JsonPrimitive(request.friendshipId))
-                                                        put("p_response", JsonPrimitive("accept"))
-                                                    }
-                                                )
-                                                loadRequests()
-                                                loadFriends()
-                                            } catch (exception: Exception) {
-                                                error = exception.message ?: "Could not accept request."
-                                            }
-                                        }
-                                    }.padding(7.dp),
-                                    color = Color(0xFFD7C8F5),
-                                    fontSize = 12.sp
-                                )
-                                Text(
-                                    "Decline",
-                                    modifier = Modifier.noRippleClickable {
-                                        scope.launch {
-                                            runCatching {
-                                                SupabaseClientProvider.client.postgrest.rpc(
-                                                    "coolanas_friend_respond",
-                                                    buildJsonObject {
-                                                        put("p_friendship_id", JsonPrimitive(request.friendshipId))
-                                                        put("p_response", JsonPrimitive("decline"))
-                                                    }
-                                                )
-                                                loadRequests()
-                                            }
-                                        }
-                                    }.padding(7.dp),
-                                    color = Color(0xFFB8BBC4),
-                                    fontSize = 12.sp
-                                )
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = { value ->
+                            draft = value.take(300)
+                            typingHeartbeat?.cancel()
+                            if (draft.isNotBlank()) {
+                                broadcastTyping(true)
+                                typingHeartbeat = scope.launch {
+                                    while (isActive) { delay(2_000L); broadcastTyping(true) }
+                                }
                             } else {
-                                Text(
-                                    "Cancel",
-                                    modifier = Modifier.noRippleClickable {
-                                        scope.launch {
-                                            runCatching {
-                                                SupabaseClientProvider.client.postgrest.rpc(
-                                                    "coolanas_friend_cancel",
-                                                    buildJsonObject { put("p_friendship_id", JsonPrimitive(request.friendshipId)) }
-                                                )
-                                                loadRequests()
-                                            }
-                                        }
-                                    }.padding(7.dp),
-                                    color = Color(0xFFB8BBC4),
-                                    fontSize = 12.sp
-                                )
+                                broadcastTyping(false)
+                                typingHeartbeat = null
                             }
-                        }
-                    }
-                }
-            }
-        } else if (selectedFriend != null && conversationId != null) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(selectedFriend!!.username, color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.weight(1f))
-                Text(
-                    "Close",
-                    modifier = Modifier.noRippleClickable {
+                        },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("Write a message…") },
+                        maxLines = 4,
+                        shape = RoundedCornerShape(28.dp)
+                    )
+                    Surface(Modifier.size(48.dp).noRippleClickable {
+                        val outgoing = draft.trim()
+                        val activeConversation = conversationId
                         typingHeartbeat?.cancel()
                         typingHeartbeat = null
                         broadcastTyping(false)
-                        selectedFriend = null
-                        conversationId = null
-                        remoteTyping = false
-                        messages = emptyList()
-                    }.padding(8.dp),
-                    color = Color(0xFFD7C8F5),
-                    fontSize = 12.sp
-                )
-            }
-            if (remoteTyping) {
-                Text(
-                    "${selectedFriend!!.username} is typing…",
-                    modifier = Modifier.fillMaxWidth().padding(start = 4.dp),
-                    color = Color(0xFFBDADE0),
-                    fontSize = 11.sp
-                )
-            }
-            LazyColumn(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                state = messageListState,
-                verticalArrangement = Arrangement.spacedBy(7.dp)
-            ) {
-                items(messages, key = { it.id }) { message ->
-                    val mine = message.senderId == userId
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth(0.82f)
-                                .background(
-                                    if (mine) Color(0xFF514568) else Color(0xFF292E36),
-                                    RoundedCornerShape(
-                                        topStart = 16.dp,
-                                        topEnd = 16.dp,
-                                        bottomEnd = if (mine) 5.dp else 16.dp,
-                                        bottomStart = if (mine) 16.dp else 5.dp
-                                    )
-                                )
-                                .padding(horizontal = 12.dp, vertical = 9.dp)
-                        ) {
-                            Text(message.messageText(), color = Color.White, fontSize = 14.sp)
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                val time = runCatching {
-                                    Instant.parse(message.createdAt).atZone(ZoneId.systemDefault())
-                                        .format(DateTimeFormatter.ofPattern("HH:mm"))
-                                }.getOrDefault("")
-                                Text(time, color = Color(0xFFB9B9C5), fontSize = 9.sp)
-                                if (mine) {
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(if (message.readAt == null) "✓" else "✓✓", color = Color(0xFFC8B7EF), fontSize = 10.sp)
-                                }
+                        if (outgoing.isNotBlank() && activeConversation != null && !sending) {
+                            val optimistic = CoolanasDmRow(
+                                id = UUID.randomUUID().toString(), conversationId = activeConversation, senderId = userId,
+                                ciphertext = buildJsonObject { put("v", JsonPrimitive(0)); put("plaintext", JsonPrimitive(outgoing)) },
+                                createdAt = Instant.now().toString(), readAt = null
+                            )
+                            messages = messages + optimistic
+                            draft = ""
+                            sending = true
+                            error = null
+                            scope.launch {
+                                try {
+                                    withContext(Dispatchers.IO) {
+                                        SupabaseClientProvider.client.postgrest.from("coolanas_dm_messages").insert(
+                                            buildJsonObject {
+                                                put("id", JsonPrimitive(optimistic.id))
+                                                put("conversation_id", JsonPrimitive(activeConversation))
+                                                put("sender_id", JsonPrimitive(userId))
+                                                put("ciphertext", optimistic.ciphertext)
+                                            }
+                                        )
+                                    }
+                                } catch (exception: Exception) {
+                                    messages = messages.filterNot { it.id == optimistic.id }
+                                    if (draft.isBlank()) draft = outgoing
+                                    error = exception.message ?: "Message could not be sent."
+                                } finally { sending = false }
                             }
+                        }
+                    }, shape = CircleShape, color = if (draft.isNotBlank() && !sending) Color(0xFF347FDF) else Color(0xFFB9C7DA)) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("➤", color = Color.White, fontSize = 21.sp) }
+                    }
+                }
+            }
+        } else if (addFriendMode) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("‹", modifier = Modifier.noRippleClickable { addFriendMode = false }.padding(end = 12.dp), color = Color(0xFF347FDF), fontSize = 30.sp)
+                Text("Add friend", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onBackground, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Spacer(Modifier.width(30.dp))
+            }
+            Row(Modifier.fillMaxWidth().background(Color(0xFFF0F3F9), RoundedCornerShape(14.dp)).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf("search" to "Search", "requests" to "Requests", "pending" to "Pending").forEach { (tab, label) ->
+                    Surface(Modifier.weight(1f).noRippleClickable {
+                        friendTab = tab
+                        if (tab != "search") scope.launch { runCatching { loadRequests() } }
+                    }, shape = RoundedCornerShape(11.dp), color = if (friendTab == tab) Color(0xFFDCE9FF) else Color.Transparent) {
+                        Box(Modifier.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                            val tabLabel = if (tab == "requests" && incomingRequests.isNotEmpty()) "$label ${incomingRequests.size}" else label
+                            Text(tabLabel, color = if (friendTab == tab) Color(0xFF246CCB) else Color(0xFF56647A), fontSize = 12.sp, fontWeight = if (friendTab == tab) FontWeight.SemiBold else FontWeight.Normal)
                         }
                     }
                 }
             }
-            Row(
-                Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = { value ->
-                        draft = value.take(300)
-                        typingHeartbeat?.cancel()
-                        if (draft.isNotBlank()) {
-                            broadcastTyping(true)
-                            typingHeartbeat = scope.launch {
-                                while (isActive) {
-                                    delay(2_000L)
-                                    broadcastTyping(true)
-                                }
+            if (friendTab == "search") {
+                OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, placeholder = { Text("Search by username…") }, shape = RoundedCornerShape(26.dp))
+                LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    if (search.trim().length < 2) item { Text("Enter at least 2 characters to find people.", Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) }
+                    else if (searchResults.isEmpty()) item { Text("No users found.", Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) }
+                    items(searchResults, key = { it.userId }) { person ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Surface(Modifier.size(42.dp), shape = CircleShape, color = Color(0xFFE2EAF7)) {
+                                Box(contentAlignment = Alignment.Center) { Text(person.username.take(1).uppercase(), color = Color(0xFF315F9B), fontWeight = FontWeight.Bold) }
                             }
-                        } else {
-                            broadcastTyping(false)
-                            typingHeartbeat = null
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("Write a message") },
-                    maxLines = 4
-                )
-                Surface(
-                    modifier = Modifier
-                        .height(52.dp)
-                        .noRippleClickable {
-                            val outgoing = draft.trim()
-                            val activeConversation = conversationId
-                            typingHeartbeat?.cancel()
-                            typingHeartbeat = null
-                            broadcastTyping(false)
-                            if (outgoing.isNotBlank() && activeConversation != null && !sending) {
-                                val optimistic = CoolanasDmRow(
-                                    id = UUID.randomUUID().toString(),
-                                    conversationId = activeConversation,
-                                    senderId = userId,
-                                    ciphertext = buildJsonObject {
-                                        put("v", JsonPrimitive(0))
-                                        put("plaintext", JsonPrimitive(outgoing))
-                                    },
-                                    createdAt = Instant.now().toString(),
-                                    readAt = null
-                                )
-                                messages = messages + optimistic
-                                draft = ""
-                                sending = true
-                                error = null
-                                scope.launch {
+                            Column(Modifier.weight(1f)) {
+                                Text(person.username, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                Text("@${person.username}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                            }
+                            val isFriend = friends.any { it.friendId == person.userId }
+                            val isPending = person.friendshipStatus == "pending"
+                            Surface(Modifier.noRippleClickable {
+                                if (!isFriend && !isPending) scope.launch {
                                     try {
-                                        withContext(Dispatchers.IO) {
-                                            SupabaseClientProvider.client.postgrest.from("coolanas_dm_messages").insert(
-                                                buildJsonObject {
-                                                    put("id", JsonPrimitive(optimistic.id))
-                                                    put("conversation_id", JsonPrimitive(activeConversation))
-                                                    put("sender_id", JsonPrimitive(userId))
-                                                    put("ciphertext", optimistic.ciphertext)
-                                                }
-                                            )
-                                        }
-                                    } catch (exception: Exception) {
-                                        messages = messages.filterNot { it.id == optimistic.id }
-                                        if (draft.isBlank()) draft = outgoing
-                                        error = exception.message ?: "Message could not be sent."
-                                    } finally {
-                                        sending = false
-                                    }
+                                        SupabaseClientProvider.client.postgrest.rpc("coolanas_friend_request", buildJsonObject { put("p_recipient_id", JsonPrimitive(person.userId)) })
+                                        search = ""
+                                        friendListVersion++
+                                        loadRequests()
+                                    } catch (exception: Exception) { error = exception.message ?: "Could not send friend request." }
                                 }
+                            }, shape = RoundedCornerShape(10.dp), color = if (isFriend || isPending) Color(0xFFE8ECF2) else Color(0xFF347FDF)) {
+                                Text(if (isFriend) "Friends" else if (isPending) "Pending" else "＋ Add friend", Modifier.padding(horizontal = 12.dp, vertical = 9.dp), color = if (isFriend || isPending) Color(0xFF68758A) else Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                             }
-                        },
-                    shape = RoundedCornerShape(14.dp),
-                    color = if (draft.isNotBlank() && !sending) Color(0xFF514568) else Color(0xFF343842)
-                ) {
-                    Box(Modifier.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
-                        Text("Send", color = if (draft.isNotBlank() && !sending) Color.White else Color(0xFF858B96), fontSize = 13.sp)
+                        }
+                        androidx.compose.material3.HorizontalDivider(color = Color(0xFFE8ECF2))
+                    }
+                }
+            } else {
+                val shownRequests = if (friendTab == "requests") incomingRequests else outgoingRequests
+                LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    if (shownRequests.isEmpty()) item { Text(if (friendTab == "requests") "No new friend requests." else "No pending requests.", Modifier.padding(14.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) }
+                    items(shownRequests, key = { it.friendshipId }) { request ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Surface(Modifier.size(42.dp), shape = CircleShape, color = Color(0xFFE2EAF7)) {
+                                Box(contentAlignment = Alignment.Center) { Text(request.username.take(1).uppercase(), color = Color(0xFF315F9B), fontWeight = FontWeight.Bold) }
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text(request.username, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                Text("@${request.username}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                            }
+                            if (friendTab == "requests") {
+                                Surface(Modifier.noRippleClickable {
+                                    scope.launch {
+                                        runCatching {
+                                            SupabaseClientProvider.client.postgrest.rpc("coolanas_friend_respond", buildJsonObject {
+                                                put("p_friendship_id", JsonPrimitive(request.friendshipId)); put("p_response", JsonPrimitive("accept"))
+                                            })
+                                            loadRequests(); loadFriends(); friendListVersion++
+                                        }.onFailure { error = it.message ?: "Could not accept request." }
+                                    }
+                                }, shape = RoundedCornerShape(10.dp), color = Color(0xFF347FDF)) {
+                                    Text("Accept", Modifier.padding(horizontal = 12.dp, vertical = 9.dp), color = Color.White, fontSize = 11.sp)
+                                }
+                                Text("Decline", Modifier.noRippleClickable {
+                                    scope.launch {
+                                        runCatching {
+                                            SupabaseClientProvider.client.postgrest.rpc("coolanas_friend_respond", buildJsonObject {
+                                                put("p_friendship_id", JsonPrimitive(request.friendshipId)); put("p_response", JsonPrimitive("decline"))
+                                            })
+                                            loadRequests()
+                                        }.onFailure { error = it.message ?: "Could not decline request." }
+                                    }
+                                }.padding(8.dp), color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                            } else {
+                                Text("Cancel", Modifier.noRippleClickable {
+                                    scope.launch {
+                                        runCatching {
+                                            SupabaseClientProvider.client.postgrest.rpc("coolanas_friend_cancel", buildJsonObject { put("p_friendship_id", JsonPrimitive(request.friendshipId)) })
+                                            loadRequests()
+                                        }.onFailure { error = it.message ?: "Could not cancel request." }
+                                    }
+                                }.padding(8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                            }
+                        }
+                        androidx.compose.material3.HorizontalDivider(color = Color(0xFFE8ECF2))
                     }
                 }
             }
         } else {
-            Surface(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                color = Color(0xFF24272E),
-                shape = RoundedCornerShape(20.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        when {
-                            conversationOpening -> "Opening conversation…"
-                            selectedFriend != null -> "Could not open this conversation. Select the friend again to retry."
-                            loading -> "Loading friends…"
-                            else -> "Choose a friend to start messaging."
-                        },
-                        color = Color(0xFFB9BEC8),
-                        fontSize = 13.sp,
-                        textAlign = TextAlign.Center
-                    )
+            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Messages", color = MaterialTheme.colorScheme.onBackground, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                    Text("Your conversations", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                }
+                Surface(Modifier.size(40.dp).noRippleClickable { addFriendMode = true; friendTab = "search"; search = "" }, shape = CircleShape, color = Color(0xFFE5EEFD)) {
+                    Box(contentAlignment = Alignment.Center) { Text("＋", color = Color(0xFF246CCB), fontSize = 24.sp) }
+                }
+                Spacer(Modifier.width(8.dp))
+                Surface(Modifier.size(40.dp).noRippleClickable { addFriendMode = true; friendTab = "requests"; scope.launch { runCatching { loadRequests() } } }, shape = CircleShape, color = Color(0xFFE5EEFD)) {
+                    Box(contentAlignment = Alignment.Center) { Text("♧", color = Color(0xFF246CCB), fontSize = 21.sp) }
+                }
+            }
+            OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, placeholder = { Text("Search conversations…") }, shape = RoundedCornerShape(24.dp))
+            if (loading) {
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("Loading conversations…", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp) }
+            } else if (friends.isEmpty()) {
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("No conversations yet", color = MaterialTheme.colorScheme.onBackground, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Add a friend to start messaging.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                    }
+                }
+            } else {
+                LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    items(friends.filter { it.username.contains(search, ignoreCase = true) }, key = { it.friendId }) { friend ->
+                        Row(Modifier.fillMaxWidth().noRippleClickable {
+                            scope.launch {
+                                selectedFriend = friend
+                                conversationId = null
+                                conversationOpening = true
+                                messages = emptyList()
+                                remoteTyping = false
+                                draft = ""
+                                error = null
+                                try {
+                                    val result = withContext(Dispatchers.IO) {
+                                        SupabaseClientProvider.client.postgrest.rpc("coolanas_dm_open_conversation", buildJsonObject { put("p_friend_id", JsonPrimitive(friend.friendId)) })
+                                    }
+                                    conversationId = result.decodeAs<String>().trim('"')
+                                    refreshUnreadCounts()
+                                } catch (exception: Exception) {
+                                    error = exception.message ?: "Could not open this conversation."
+                                } finally { conversationOpening = false }
+                            }
+                        }.padding(vertical = 11.dp, horizontal = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Surface(Modifier.size(54.dp), shape = CircleShape, color = Color(0xFFE5ECF8)) {
+                                Box(contentAlignment = Alignment.Center) { Text(friend.username.take(1).uppercase(), color = Color(0xFF315F9B), fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+                            }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(friend.username, color = MaterialTheme.colorScheme.onBackground, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                Text("Open conversation", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                            }
+                            val unread = unreadCounts[friend.friendId] ?: 0
+                            if (unread > 0) Surface(shape = CircleShape, color = Color(0xFF347FDF)) {
+                                Text(if (unread > 9) "9+" else unread.toString(), Modifier.padding(horizontal = 6.dp, vertical = 3.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        androidx.compose.material3.HorizontalDivider(color = Color(0xFFE9EDF3))
+                    }
                 }
             }
         }
 
-        if (!error.isNullOrBlank()) {
-            Text(error.orEmpty(), color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
-        }
+        if (!error.isNullOrBlank()) Text(error.orEmpty(), color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
     }
 }
 
