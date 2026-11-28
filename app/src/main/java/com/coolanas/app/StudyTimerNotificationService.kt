@@ -79,10 +79,7 @@ class StudyTimerNotificationService : Service() {
         }
 
         fun hide(context: android.content.Context) {
-            val intent = Intent(context, StudyTimerNotificationService::class.java).apply {
-                action = ACTION_STOP
-            }
-            context.startService(intent)
+            context.stopService(Intent(context, StudyTimerNotificationService::class.java))
         }
     }
 }
