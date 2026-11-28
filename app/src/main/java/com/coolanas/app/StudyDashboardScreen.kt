@@ -903,12 +903,11 @@ fun StudyDashboardScreen(
                                         modifier = Modifier
                                             .size(22.dp)
                                             .noRippleClickable {
-                                                    val updated = subjects.map {
-                                                        if (it.name == subject.name) it.copy(color = index) else it
-                                                    }
-                                                    saveSubjectChanges(updated)
-                                                    subjectMenu = null
+                                                val updated = subjects.map {
+                                                    if (it.name == subject.name) it.copy(color = index) else it
                                                 }
+                                                saveSubjectChanges(updated)
+                                                subjectMenu = null
                                             },
                                         shape = CircleShape,
                                         color = Color(paletteColour),
@@ -975,46 +974,6 @@ fun StudyDashboardScreen(
                     subjectMenu = null
                 },
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
-            )
-        }
-    }
-
-
-
-@Composable
-private fun AnalyticsNavigationButton(enabled: Boolean, onClick: () -> Unit) {
-    Surface(
-        modifier = Modifier
-            .size(44.dp)
-            .noRippleClickable(onClick)
-            .semantics { contentDescription = "Open analytics" },
-        shape = CircleShape,
-        color = Color(0xFFF7F7F7),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFD5D5D5))
-    ) {
-        Canvas(Modifier.padding(11.dp)) {
-            val left = size.width * 0.08f
-            val bottom = size.height * 0.9f
-            val path = Path().apply {
-                moveTo(left, size.height * 0.08f)
-                lineTo(left, bottom)
-                lineTo(size.width * 0.96f, bottom)
-            }
-            drawPath(
-                path,
-                color = Color(0xFF555555),
-                style = Stroke(width = size.minDimension * 0.09f, cap = StrokeCap.Round)
-            )
-            val trend = Path().apply {
-                moveTo(size.width * 0.2f, size.height * 0.68f)
-                lineTo(size.width * 0.43f, size.height * 0.47f)
-                lineTo(size.width * 0.62f, size.height * 0.56f)
-                lineTo(size.width * 0.88f, size.height * 0.18f)
-            }
-            drawPath(
-                trend,
-                color = Color(0xFF171717),
-                style = Stroke(width = size.minDimension * 0.1f, cap = StrokeCap.Round)
             )
         }
     }
@@ -1097,58 +1056,57 @@ private fun DrawScope.drawResetIcon(colour: Color) {
 }
 
 @Composable
-private fun SubjectEditorDialog(
-    subject: StudySubject?,
-    darkMode: Boolean,
-    onDismiss: () -> Unit,
-    onSave: (StudySubject) -> Unit
+private fun CoolanasBottomNavigation(
+    activePage: DashboardPage,
+    onSelect: (DashboardPage) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    var name by remember(subject) { mutableStateOf(subject?.name ?: "") }
-    var colorIndex by remember(subject) { mutableStateOf(subject?.color ?: 0) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (subject == null) "Add subject" else "Rename subject") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it.take(32) },
-                    singleLine = true,
-                    label = { Text("Subject name") }
-                )
-                Spacer(Modifier.height(14.dp))
-                Text("Colour", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StudySyncManager.subjectPalette.forEachIndexed { index, colour ->
-                        Surface(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .noRippleClickable { colorIndex = index },
-                            shape = CircleShape,
-                            color = Color(colour),
-                            border = androidx.compose.foundation.BorderStroke(
-                                if (colorIndex == index) 2.dp else 1.dp,
-                                if (colorIndex == index) Color(0xFF333333) else Color(0xFFBBBBBB)
-                            )
-                        ) {}
-                    }
+    Surface(
+        modifier = modifier
+            .fillMaxWidth(0.88f)
+            .widthIn(max = 380.dp)
+            .height(62.dp),
+        shape = RoundedCornerShape(32.dp),
+        color = Color(0xE522252B),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
+        tonalElevation = 10.dp,
+        shadowElevation = 12.dp
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(5.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            listOf(
+                Triple(DashboardPage.Timer, "Timer", "◷"),
+                Triple(DashboardPage.Analytics, "Analytics", "▥"),
+                Triple(DashboardPage.Messages, "Messages", "✉")
+            ).forEach { (page, label, symbol) ->
+                val selected = activePage == page
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(25.dp))
+                        .background(if (selected) Color(0xFF514568) else Color.Transparent)
+                        .noRippleClickable { onSelect(page) },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        symbol,
+                        color = if (selected) Color(0xFFF0E8FF) else Color(0xFFB8BBC4),
+                        fontSize = 17.sp
+                    )
+                    Text(
+                        label,
+                        color = if (selected) Color(0xFFF0E8FF) else Color(0xFFB8BBC4),
+                        fontSize = 10.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                    )
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = name.isNotBlank(),
-                onClick = { onSave(StudySubject(name.trim(), colorIndex)) }
-            ) { Text("Save") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        },
-        containerColor = if (darkMode) Color(0xFF292B31) else Color(0xFFFFFBFF),
-        titleContentColor = if (darkMode) Color(0xFFF4F4F4) else Color(0xFF171717),
-        textContentColor = if (darkMode) Color(0xFFE2E2E2) else Color(0xFF444444)
-    )
+        }
+    }
 }
 
 private fun formatStudyTime(milliseconds: Long): String {
