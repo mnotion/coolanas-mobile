@@ -108,6 +108,25 @@ private object NativeGuildRepository {
         }.decodeList<GuildMessageData>()
     }
 
+    suspend fun latestMessages(guildId: String, pageSize: Int = 50): List<GuildMessageData> = withContext(Dispatchers.IO) {
+        client.postgrest.from("coolanas_guild_messages").select {
+            filter { eq("guild_id", guildId) }
+            order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+            limit(pageSize)
+        }.decodeList<GuildMessageData>().reversed()
+    }
+
+    suspend fun olderMessages(guildId: String, before: String, pageSize: Int = 50): List<GuildMessageData> = withContext(Dispatchers.IO) {
+        client.postgrest.from("coolanas_guild_messages").select {
+            filter {
+                eq("guild_id", guildId)
+                lt("created_at", before)
+            }
+            order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+            limit(pageSize)
+        }.decodeList<GuildMessageData>().reversed()
+    }
+
     suspend fun sendMessage(guildId: String, userId: String, body: String) = withContext(Dispatchers.IO) {
         client.postgrest.from("coolanas_guild_messages").insert(
             buildJsonObject {
@@ -235,6 +254,8 @@ fun StudyGuildsScreen(
     var publicTimers by remember(userId) { mutableStateOf<List<GuildPublicTimerData>>(emptyList()) }
     var activeTimerClockOffset by remember(userId) { mutableStateOf(0L) }
     var messages by remember(userId) { mutableStateOf<List<GuildMessageData>>(emptyList()) }
+    var messagesLoaded by remember(userId) { mutableStateOf(false) }
+    var hasOlderMessages by remember(userId) { mutableStateOf(false) }
     var messageDraft by remember(userId) { mutableStateOf("") }
     var loading by remember(userId) { mutableStateOf(true) }
     var busy by remember(userId) { mutableStateOf(false) }
@@ -292,6 +313,13 @@ fun StudyGuildsScreen(
             row.serverNow?.let { value -> runCatching { Instant.parse(value).toEpochMilli() }.getOrNull() }
         }
         if (server != null) activeTimerClockOffset = server - System.currentTimeMillis()
+    }
+
+    suspend fun loadOlderGuildMessages(before: String) {
+        val activeGuildId = guild?.id ?: return
+        val older = NativeGuildRepository.olderMessages(activeGuildId, before)
+        hasOlderMessages = older.size == 50
+        if (older.isNotEmpty()) messages = mergeGuildMessageLists(older, messages)
     }
 
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -354,8 +382,13 @@ fun StudyGuildsScreen(
 
     LaunchedEffect(guild?.id, page) {
         val activeGuild = guild ?: return@LaunchedEffect
-        if (page != GuildPage.Chat) return@LaunchedEffect
+        val joinedHome = page == GuildPage.Home
+        if (!joinedHome && page != GuildPage.Chat) return@LaunchedEffect
+
         messages = emptyList()
+        messagesLoaded = false
+        hasOlderMessages = false
+
         val channel = SupabaseClientProvider.client.realtime.channel("coolanas-guild-chat-" + activeGuild.id)
         val insertFlow = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
             table = "coolanas_guild_messages"
@@ -365,20 +398,34 @@ fun StudyGuildsScreen(
             insertFlow.collect { action ->
                 val row = runCatching { action.decodeRecord<GuildMessageData>() }.getOrNull() ?: return@collect
                 if (row.guildId == activeGuild.id && messages.none { it.id == row.id }) {
-                    messages = (messages + row).sortedBy { it.createdAt }
+                    messages = mergeGuildMessageLists(messages, listOf(row))
                 }
             }
         }
         try {
             channel.subscribe(blockUntilSubscribed = false)
-            messages = NativeGuildRepository.messages(activeGuild.id)
+            val initial = if (joinedHome) {
+                NativeGuildRepository.latestMessages(activeGuild.id)
+            } else {
+                NativeGuildRepository.messages(activeGuild.id)
+            }
+            messages = mergeGuildMessageLists(messages, initial)
+            hasOlderMessages = joinedHome && initial.size == 50
+            messagesLoaded = true
+
             while (isActive) {
                 delay(5_000L)
-                messages = NativeGuildRepository.messages(activeGuild.id)
+                val latest = if (joinedHome) {
+                    NativeGuildRepository.latestMessages(activeGuild.id)
+                } else {
+                    NativeGuildRepository.messages(activeGuild.id)
+                }
+                messages = mergeGuildMessageLists(messages, latest)
             }
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (exception: Exception) {
+            messagesLoaded = true
             error = exception.message ?: "Guild chat could not refresh."
         } finally {
             observer.cancel()
@@ -423,7 +470,12 @@ fun StudyGuildsScreen(
             try {
                 NativeGuildRepository.sendMessage(current.id, userId, body)
                 messageDraft = ""
-                messages = NativeGuildRepository.messages(current.id)
+                val refreshed = if (page == GuildPage.Home) {
+                    NativeGuildRepository.latestMessages(current.id)
+                } else {
+                    NativeGuildRepository.messages(current.id)
+                }
+                messages = mergeGuildMessageLists(messages, refreshed)
             } catch (exception: Exception) {
                 error = exception.message ?: "Message could not be sent."
             } finally {
@@ -560,20 +612,59 @@ fun StudyGuildsScreen(
     val elapsed = timer.elapsedAt(serverNowMillis)
     val members = currentGuild?.members.orEmpty()
 
+    val joinedHomeLayout = page == GuildPage.Home && currentGuild != null
     Box(Modifier.fillMaxSize().background(GuildBackground)) {
-        Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp)) {
+        Column(
+            Modifier.fillMaxSize().then(
+                if (joinedHomeLayout) {
+                    Modifier.padding(top = 10.dp, bottom = 100.dp)
+                } else {
+                    Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp)
+                }
+            )
+        ) {
             when (page) {
-                GuildPage.Home -> GuildHomeContent(
-                    guild = currentGuild, currentUserId = userId, members = members, statuses = statuses,
-                    elapsedMs = elapsed, timerRunning = timer.startedAtMs != null, loading = loading,
-                    onCreate = ::beginCreate, onOpenBazaar = { page = GuildPage.Bazaar },
-                    onOpenChat = { page = GuildPage.Chat }, onOpenStudying = { page = GuildPage.StudyingNow },
-                    onOpenInvitations = { page = GuildPage.Invitations }, onEdit = ::beginEdit,
-                    onLeave = { confirmAction = "leave" }, onDisband = { confirmAction = "disband" },
-                    onTimerToggle = onToggleTimer, onTimerReset = onResetTimer, onOpenTimer = onOpenTimer,
-                    isOwner = owner, inviteUsername = inviteUsername, onInviteUsername = { inviteUsername = it },
-                    onInvite = ::inviteMember, busy = busy
-                )
+                GuildPage.Home -> if (currentGuild != null) {
+                    GuildJoinedHomeContent(
+                        guild = currentGuild,
+                        currentUserId = userId,
+                        members = members,
+                        messages = messages,
+                        messagesLoaded = messagesLoaded,
+                        hasOlderMessages = hasOlderMessages,
+                        elapsedMs = elapsed,
+                        draft = messageDraft,
+                        sending = sending,
+                        error = error,
+                        statusMessage = infoMessage,
+                        inviteUsername = inviteUsername,
+                        isOwner = owner,
+                        onDraftChange = { messageDraft = it },
+                        onSend = ::submitMessage,
+                        onLoadOlder = ::loadOlderGuildMessages,
+                        onInviteUsernameChange = { inviteUsername = it },
+                        onInvite = ::inviteMember,
+                        onOpenTimer = onOpenTimer,
+                        onOpenBazaar = { page = GuildPage.Bazaar },
+                        onOpenInvitations = { page = GuildPage.Invitations },
+                        onOpenStudyingNow = { page = GuildPage.StudyingNow },
+                        onEditGuild = ::beginEdit,
+                        onLeaveGuild = { confirmAction = "leave" },
+                        onDisbandGuild = { confirmAction = "disband" }
+                    )
+                } else {
+                    GuildHomeContent(
+                        guild = null, currentUserId = userId, members = members, statuses = statuses,
+                        elapsedMs = elapsed, timerRunning = timer.startedAtMs != null, loading = loading,
+                        onCreate = ::beginCreate, onOpenBazaar = { page = GuildPage.Bazaar },
+                        onOpenChat = { page = GuildPage.Chat }, onOpenStudying = { page = GuildPage.StudyingNow },
+                        onOpenInvitations = { page = GuildPage.Invitations }, onEdit = ::beginEdit,
+                        onLeave = { confirmAction = "leave" }, onDisband = { confirmAction = "disband" },
+                        onTimerToggle = onToggleTimer, onTimerReset = onResetTimer, onOpenTimer = onOpenTimer,
+                        isOwner = owner, inviteUsername = inviteUsername, onInviteUsername = { inviteUsername = it },
+                        onInvite = ::inviteMember, busy = busy
+                    )
+                }
                 GuildPage.Chat -> GuildChatContent(
                     guild = currentGuild, members = members, userId = userId,
                     messages = messages, draft = messageDraft, sending = sending, error = error,
@@ -637,10 +728,12 @@ fun StudyGuildsScreen(
                 )
             }
 
-            if (error != null && page !in listOf(GuildPage.Chat, GuildPage.Bazaar, GuildPage.StudyingNow)) {
+            if (error != null && !(page == GuildPage.Home && currentGuild != null) &&
+                page !in listOf(GuildPage.Chat, GuildPage.Bazaar, GuildPage.StudyingNow)
+            ) {
                 Text(error.orEmpty(), color = Color(0xFFB42318), fontSize = 12.sp, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
             }
-            if (infoMessage != null) {
+            if (infoMessage != null && !(page == GuildPage.Home && currentGuild != null)) {
                 Text(infoMessage.orEmpty(), color = Color(0xFF246CCB), fontSize = 12.sp, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
             }
         }
@@ -1269,7 +1362,7 @@ private fun GuildRoundAction(symbol: String, description: String, onClick: () ->
 }
 
 @Composable
-private fun GuildAvatar(url: String?, label: String, size: Dp, accent: String? = null) {
+internal fun GuildAvatar(url: String?, label: String, size: Dp, accent: String? = null) {
     val background = accent?.takeIf { it.matches(Regex("^#[0-9a-fA-F]{6}$")) }
         ?.let { Color(android.graphics.Color.parseColor(it)) } ?: Color(0xFFDCE9FA)
     Surface(Modifier.size(size), shape = CircleShape, color = background) {
@@ -1284,7 +1377,7 @@ private fun GuildAvatar(url: String?, label: String, size: Dp, accent: String? =
 }
 
 @Composable
-private fun GuildRemoteImage(url: String?, modifier: Modifier = Modifier, placeholder: String = "Image", isCircle: Boolean = false) {
+internal fun GuildRemoteImage(url: String?, modifier: Modifier = Modifier, placeholder: String = "Image", isCircle: Boolean = false) {
     var bitmap by remember(url) { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(url) {
         bitmap = if (url.isNullOrBlank()) null else withContext(Dispatchers.IO) {
@@ -1362,6 +1455,17 @@ private fun formatGuildTime(value: String): String = runCatching {
     Instant.parse(value).atZone(java.time.ZoneId.systemDefault())
         .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault()))
 }.getOrDefault("")
+
+
+private fun mergeGuildMessageLists(
+    first: List<GuildMessageData>,
+    second: List<GuildMessageData>
+): List<GuildMessageData> {
+    val byId = LinkedHashMap<String, GuildMessageData>()
+    first.forEach { byId[it.id] = it }
+    second.forEach { byId[it.id] = it }
+    return byId.values.sortedBy { it.createdAt }
+}
 
 private fun formatGuildAge(value: String?): String {
     if (value.isNullOrBlank()) return ""
