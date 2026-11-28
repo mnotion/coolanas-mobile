@@ -375,7 +375,7 @@ private fun GuildMobileControlRow(
                 DropdownMenuItem(
                     text = { Text("# general", fontWeight = FontWeight.SemiBold) },
                     onClick = { onChannelMenuChange(false) },
-                    leadingIcon = { Text("#", color = GuildBlue, fontWeight = FontWeight.Bold) }
+                    leadingIcon = { Text("#", color = GuildJoinedBlue, fontWeight = FontWeight.Bold) }
                 )
             }
         }
@@ -676,7 +676,7 @@ private fun GuildMobileComposer(
                 .clip(RoundedCornerShape(10.dp))
                 .clickable(enabled = value.isNotBlank() && !sending, onClick = onSend),
             shape = RoundedCornerShape(10.dp),
-            color = if (value.isNotBlank() && !sending) GuildBlue else Color(0xFF9BAABD)
+            color = if (value.isNotBlank() && !sending) GuildJoinedBlue else Color(0xFF9BAABD)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 androidx.compose.foundation.Canvas(Modifier.size(19.dp)) {
