@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -86,6 +87,11 @@ private data class CoolanasFriendSearchRow(
 )
 
 @Serializable
+private data class CoolanasUnreadSenderRow(
+    @SerialName("sender_id") val senderId: String
+)
+
+@Serializable
 private data class CoolanasDmRow(
     val id: String,
     @SerialName("conversation_id") val conversationId: String,
@@ -118,6 +124,7 @@ fun StudyMessagingScreen(userId: String) {
     var error by remember(userId) { mutableStateOf<String?>(null) }
     var requestsVisible by remember(userId) { mutableStateOf(false) }
     var friendListVersion by remember(userId) { mutableStateOf(0) }
+    var unreadCounts by remember(userId) { mutableStateOf<Map<String, Int>>(emptyMap()) }
     val messageListState = rememberLazyListState()
 
     suspend fun loadFriends() {
@@ -134,16 +141,41 @@ fun StudyMessagingScreen(userId: String) {
         }
     }
 
+    suspend fun refreshUnreadCounts() {
+        val friendIds = friends.map { it.friendId }
+        if (friendIds.isEmpty()) {
+            unreadCounts = emptyMap()
+            return
+        }
+        val rows = withContext(Dispatchers.IO) {
+            SupabaseClientProvider.client.postgrest.from("coolanas_dm_messages").select {
+                filter {
+                    isIn("sender_id", friendIds)
+                    exact("read_at", null)
+                }
+            }.decodeList<CoolanasUnreadSenderRow>()
+        }
+        unreadCounts = rows.groupingBy { it.senderId }.eachCount()
+    }
+
     LaunchedEffect(userId, friendListVersion) {
         loading = true
         error = null
         try {
             loadFriends()
             loadRequests()
+            refreshUnreadCounts()
         } catch (exception: Exception) {
             error = exception.message ?: "Could not load your friends."
         } finally {
             loading = false
+        }
+    }
+
+    LaunchedEffect(userId) {
+        while (true) {
+            delay(5_000L)
+            runCatching { refreshUnreadCounts() }
         }
     }
 
@@ -180,7 +212,12 @@ fun StudyMessagingScreen(userId: String) {
                 if (messages.none { it.id == row.id }) {
                     messages = (messages + row).sortedWith(compareBy<CoolanasDmRow> { it.createdAt }.thenBy { it.id })
                 }
-                if (row.senderId != userId) markConversationRead(activeConversation, userId)
+                if (row.senderId != userId) {
+                    markConversationRead(activeConversation, userId)
+                refreshUnreadCounts()
+            refreshUnreadCounts()
+                    refreshUnreadCounts()
+                }
             }
         }
         try {
@@ -307,38 +344,56 @@ fun StudyMessagingScreen(userId: String) {
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         friends.forEach { friend ->
-                            Surface(
-                                modifier = Modifier.noRippleClickable {
-                                    scope.launch {
-                                        selectedFriend = friend
-                                        draft = ""
-                                        error = null
-                                        try {
-                                            val result = withContext(Dispatchers.IO) {
-                                                SupabaseClientProvider.client.postgrest.rpc(
-                                                    "coolanas_dm_open_conversation",
-                                                    buildJsonObject { put("p_friend_id", JsonPrimitive(friend.friendId)) }
-                                                )
+                            Box {
+                                Surface(
+                                    modifier = Modifier.noRippleClickable {
+                                        scope.launch {
+                                            selectedFriend = friend
+                                            draft = ""
+                                            error = null
+                                            try {
+                                                val result = withContext(Dispatchers.IO) {
+                                                    SupabaseClientProvider.client.postgrest.rpc(
+                                                        "coolanas_dm_open_conversation",
+                                                        buildJsonObject { put("p_friend_id", JsonPrimitive(friend.friendId)) }
+                                                    )
+                                                }
+                                                conversationId = result.decodeAs<String>().trim('"')
+                                                refreshUnreadCounts()
+                                            } catch (exception: Exception) {
+                                                error = exception.message ?: "Could not open this conversation."
                                             }
-                                            conversationId = result.decodeAs<String>().trim('"')
-                                        } catch (exception: Exception) {
-                                            error = exception.message ?: "Could not open this conversation."
                                         }
+                                    },
+                                    shape = RoundedCornerShape(18.dp),
+                                    color = if (selectedFriend?.friendId == friend.friendId) Color(0xFF514568) else Color(0xFF262A31),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        if (selectedFriend?.friendId == friend.friendId) Color(0xFFB8A3E6) else Color(0xFF3C414A)
+                                    )
+                                ) {
+                                    Text(
+                                        friend.username,
+                                        modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
+                                        color = Color.White,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                                val unread = unreadCounts[friend.friendId] ?: 0
+                                if (unread > 0) {
+                                    Surface(
+                                        modifier = Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-4).dp),
+                                        shape = CircleShape,
+                                        color = Color(0xFFE35D6A)
+                                    ) {
+                                        Text(
+                                            if (unread > 9) "9+" else unread.toString(),
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                            color = Color.White,
+                                            fontSize = 9.sp
+                                        )
                                     }
-                                },
-                                shape = RoundedCornerShape(18.dp),
-                                color = if (selectedFriend?.friendId == friend.friendId) Color(0xFF514568) else Color(0xFF262A31),
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp,
-                                    if (selectedFriend?.friendId == friend.friendId) Color(0xFFB8A3E6) else Color(0xFF3C414A)
-                                )
-                            ) {
-                                Text(
-                                    friend.username,
-                                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
-                                    color = Color.White,
-                                    fontSize = 12.sp
-                                )
+                                }
                             }
                         }
                     }
