@@ -17,12 +17,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -245,12 +243,15 @@ fun StudyMessagingScreen(userId: String) {
                 Text("Messages", color = MaterialTheme.colorScheme.onBackground, fontSize = 24.sp, fontWeight = FontWeight.Medium)
                 Text("Coolanas friends", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
             }
-            TextButton(onClick = {
-                requestsVisible = !requestsVisible
-                if (requestsVisible) scope.launch { runCatching { loadRequests() } }
-            }) {
-                Text("Requests ${requests.count { it.direction == "incoming" }}")
-            }
+            Text(
+                "Requests ${requests.count { it.direction == "incoming" }}",
+                modifier = Modifier.noRippleClickable {
+                    requestsVisible = !requestsVisible
+                    if (requestsVisible) scope.launch { runCatching { loadRequests() } }
+                }.padding(10.dp),
+                color = Color(0xFFD7C8F5),
+                fontSize = 12.sp
+            )
         }
 
         OutlinedTextField(
@@ -273,10 +274,11 @@ fun StudyMessagingScreen(userId: String) {
                     searchResults.forEach { person ->
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(person.username, color = Color.White, modifier = Modifier.weight(1f))
-                            TextButton(
-                                enabled = person.friendshipStatus != "pending" && friends.none { it.friendId == person.userId },
-                                onClick = {
-                                    scope.launch {
+                            val canAdd = person.friendshipStatus != "pending" && friends.none { it.friendId == person.userId }
+                            Text(
+                                if (person.friendshipStatus == "pending") "Pending" else "Add",
+                                modifier = Modifier.noRippleClickable {
+                                    if (canAdd) scope.launch {
                                         try {
                                             SupabaseClientProvider.client.postgrest.rpc(
                                                 "coolanas_friend_request",
@@ -288,8 +290,10 @@ fun StudyMessagingScreen(userId: String) {
                                             error = exception.message ?: "Could not send friend request."
                                         }
                                     }
-                                }
-                            ) { Text(if (person.friendshipStatus == "pending") "Pending" else "Add") }
+                                }.padding(10.dp),
+                                color = if (canAdd) Color(0xFFD7C8F5) else Color(0xFF858B96),
+                                fontSize = 12.sp
+                            )
                         }
                     }
                 }
@@ -357,49 +361,64 @@ fun StudyMessagingScreen(userId: String) {
                                 Text(request.direction, color = Color(0xFF9EA5B2), fontSize = 10.sp)
                             }
                             if (request.direction == "incoming") {
-                                TextButton(onClick = {
-                                    scope.launch {
-                                        try {
-                                            SupabaseClientProvider.client.postgrest.rpc(
-                                                "coolanas_friend_respond",
-                                                buildJsonObject {
-                                                    put("p_friendship_id", JsonPrimitive(request.friendshipId))
-                                                    put("p_response", JsonPrimitive("accept"))
-                                                }
-                                            )
-                                            loadRequests()
-                                            loadFriends()
-                                        } catch (exception: Exception) {
-                                            error = exception.message ?: "Could not accept request."
+                                Text(
+                                    "Accept",
+                                    modifier = Modifier.noRippleClickable {
+                                        scope.launch {
+                                            try {
+                                                SupabaseClientProvider.client.postgrest.rpc(
+                                                    "coolanas_friend_respond",
+                                                    buildJsonObject {
+                                                        put("p_friendship_id", JsonPrimitive(request.friendshipId))
+                                                        put("p_response", JsonPrimitive("accept"))
+                                                    }
+                                                )
+                                                loadRequests()
+                                                loadFriends()
+                                            } catch (exception: Exception) {
+                                                error = exception.message ?: "Could not accept request."
+                                            }
                                         }
-                                    }
-                                }) { Text("Accept") }
-                                TextButton(onClick = {
-                                    scope.launch {
-                                        runCatching {
-                                            SupabaseClientProvider.client.postgrest.rpc(
-                                                "coolanas_friend_respond",
-                                                buildJsonObject {
-                                                    put("p_friendship_id", JsonPrimitive(request.friendshipId))
-                                                    put("p_response", JsonPrimitive("decline"))
-                                                }
-                                            )
-                                            loadRequests()
+                                    }.padding(7.dp),
+                                    color = Color(0xFFD7C8F5),
+                                    fontSize = 12.sp
+                                )
+                                Text(
+                                    "Decline",
+                                    modifier = Modifier.noRippleClickable {
+                                        scope.launch {
+                                            runCatching {
+                                                SupabaseClientProvider.client.postgrest.rpc(
+                                                    "coolanas_friend_respond",
+                                                    buildJsonObject {
+                                                        put("p_friendship_id", JsonPrimitive(request.friendshipId))
+                                                        put("p_response", JsonPrimitive("decline"))
+                                                    }
+                                                )
+                                                loadRequests()
+                                            }
                                         }
-                                    }
-                                }) { Text("Decline") }
+                                    }.padding(7.dp),
+                                    color = Color(0xFFB8BBC4),
+                                    fontSize = 12.sp
+                                )
                             } else {
-                                TextButton(onClick = {
-                                    scope.launch {
-                                        runCatching {
-                                            SupabaseClientProvider.client.postgrest.rpc(
-                                                "coolanas_friend_cancel",
-                                                buildJsonObject { put("p_friendship_id", JsonPrimitive(request.friendshipId)) }
-                                            )
-                                            loadRequests()
+                                Text(
+                                    "Cancel",
+                                    modifier = Modifier.noRippleClickable {
+                                        scope.launch {
+                                            runCatching {
+                                                SupabaseClientProvider.client.postgrest.rpc(
+                                                    "coolanas_friend_cancel",
+                                                    buildJsonObject { put("p_friendship_id", JsonPrimitive(request.friendshipId)) }
+                                                )
+                                                loadRequests()
+                                            }
                                         }
-                                    }
-                                }) { Text("Cancel") }
+                                    }.padding(7.dp),
+                                    color = Color(0xFFB8BBC4),
+                                    fontSize = 12.sp
+                                )
                             }
                         }
                     }
@@ -409,11 +428,16 @@ fun StudyMessagingScreen(userId: String) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(selectedFriend!!.username, color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = {
-                    selectedFriend = null
-                    conversationId = null
-                    messages = emptyList()
-                }) { Text("Close") }
+                Text(
+                    "Close",
+                    modifier = Modifier.noRippleClickable {
+                        selectedFriend = null
+                        conversationId = null
+                        messages = emptyList()
+                    }.padding(8.dp),
+                    color = Color(0xFFD7C8F5),
+                    fontSize = 12.sp
+                )
             }
             LazyColumn(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -472,49 +496,57 @@ fun StudyMessagingScreen(userId: String) {
                     placeholder = { Text("Write a message") },
                     maxLines = 4
                 )
-                Button(
-                    enabled = draft.isNotBlank() && !sending,
-                    onClick = {
-                        val outgoing = draft.trim()
-                        val activeConversation = conversationId ?: return@Button
-                        if (outgoing.isBlank()) return@Button
-                        val optimistic = CoolanasDmRow(
-                            id = UUID.randomUUID().toString(),
-                            conversationId = activeConversation,
-                            senderId = userId,
-                            ciphertext = buildJsonObject {
-                                put("v", JsonPrimitive(0))
-                                put("plaintext", JsonPrimitive(outgoing))
-                            },
-                            createdAt = Instant.now().toString(),
-                            readAt = null
-                        )
-                        messages = messages + optimistic
-                        draft = ""
-                        sending = true
-                        error = null
-                        scope.launch {
-                            try {
-                                withContext(Dispatchers.IO) {
-                                    SupabaseClientProvider.client.postgrest.from("coolanas_dm_messages").insert(
-                                        buildJsonObject {
-                                            put("id", JsonPrimitive(optimistic.id))
-                                            put("conversation_id", JsonPrimitive(activeConversation))
-                                            put("sender_id", JsonPrimitive(userId))
-                                            put("ciphertext", optimistic.ciphertext)
+                Surface(
+                    modifier = Modifier
+                        .height(52.dp)
+                        .noRippleClickable {
+                            val outgoing = draft.trim()
+                            val activeConversation = conversationId
+                            if (outgoing.isNotBlank() && activeConversation != null && !sending) {
+                                val optimistic = CoolanasDmRow(
+                                    id = UUID.randomUUID().toString(),
+                                    conversationId = activeConversation,
+                                    senderId = userId,
+                                    ciphertext = buildJsonObject {
+                                        put("v", JsonPrimitive(0))
+                                        put("plaintext", JsonPrimitive(outgoing))
+                                    },
+                                    createdAt = Instant.now().toString(),
+                                    readAt = null
+                                )
+                                messages = messages + optimistic
+                                draft = ""
+                                sending = true
+                                error = null
+                                scope.launch {
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            SupabaseClientProvider.client.postgrest.from("coolanas_dm_messages").insert(
+                                                buildJsonObject {
+                                                    put("id", JsonPrimitive(optimistic.id))
+                                                    put("conversation_id", JsonPrimitive(activeConversation))
+                                                    put("sender_id", JsonPrimitive(userId))
+                                                    put("ciphertext", optimistic.ciphertext)
+                                                }
+                                            )
                                         }
-                                    )
+                                    } catch (exception: Exception) {
+                                        messages = messages.filterNot { it.id == optimistic.id }
+                                        if (draft.isBlank()) draft = outgoing
+                                        error = exception.message ?: "Message could not be sent."
+                                    } finally {
+                                        sending = false
+                                    }
                                 }
-                            } catch (exception: Exception) {
-                                messages = messages.filterNot { it.id == optimistic.id }
-                                if (draft.isBlank()) draft = outgoing
-                                error = exception.message ?: "Message could not be sent."
-                            } finally {
-                                sending = false
                             }
-                        }
+                        },
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (draft.isNotBlank() && !sending) Color(0xFF514568) else Color(0xFF343842)
+                ) {
+                    Box(Modifier.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+                        Text("Send", color = if (draft.isNotBlank() && !sending) Color.White else Color(0xFF858B96), fontSize = 13.sp)
                     }
-                ) { Text("Send") }
+                }
             }
         } else {
             Surface(
