@@ -329,7 +329,11 @@ private fun MonthlyAnalytics(
     val monthDays = (1..month.lengthOfMonth()).map { month.atDay(it) }
     val prefix = month.toString()
     val values = monthDays.map { snapshot.daily[it.toString()] ?: 0L }
-    val chartDays = (179 downTo 0).map { today.minusDays(it.toLong()) }
+    val historyStart = snapshot.daily.keys
+        .mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }
+        .minOrNull() ?: today.minusDays(6)
+    val chartDayCount = ChronoUnit.DAYS.between(historyStart, today).toInt().coerceIn(6, 3650)
+    val chartDays = (chartDayCount downTo 0).map { today.minusDays(it.toLong()) }
     val chartValues = chartDays.map { snapshot.daily[it.toString()] ?: 0L }
     val total = values.sum()
     val studiedDays = values.count { it > 0L }
@@ -379,7 +383,7 @@ private fun MonthlyAnalytics(
         AnalyticsCard {
             Text("Daily study time", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp, fontWeight = FontWeight.Medium)
             Text(
-                "Last 7 days · swipe back for earlier days",
+                "Latest 7 days · swipe back through your full history",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp
             )
