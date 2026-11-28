@@ -72,11 +72,11 @@ private object NativeGuildRepository {
     private val client get() = SupabaseClientProvider.client
 
     suspend fun currentGuild(): GuildData? = withContext(Dispatchers.IO) {
-        client.postgrest.rpc("coolanas_guild_get_or_create").decodeSingleOrNull<GuildData>()
+        client.postgrest.rpc("coolanas_guild_get_or_create").decodeAs<GuildData?>()
     }
 
     suspend fun invitations(): GuildInvitationsData = withContext(Dispatchers.IO) {
-        client.postgrest.rpc("coolanas_guild_list_invitations").decodeSingle<GuildInvitationsData>()
+        client.postgrest.rpc("coolanas_guild_list_invitations").decodeAs<GuildInvitationsData>()
     }
 
     suspend fun memberStatuses(): List<GuildMemberStatusData> = withContext(Dispatchers.IO) {
@@ -90,7 +90,7 @@ private object NativeGuildRepository {
                 put("p_page", JsonPrimitive(page))
                 put("p_page_size", JsonPrimitive(10))
             }
-        ).decodeSingle<GuildPublicDirectoryData>()
+        ).decodeAs<GuildPublicDirectoryData>()
     }
 
     suspend fun publicTimers(): List<GuildPublicTimerData> = withContext(Dispatchers.IO) {
@@ -132,7 +132,7 @@ private object NativeGuildRepository {
                 put("p_picture_url", JsonPrimitive(pictureUrl ?: ""))
                 put("p_colour", JsonPrimitive(colour))
             }
-        ).decodeSingle<GuildData>()
+        ).decodeAs<GuildData>()
     }
 
     suspend fun updateGuild(
@@ -150,7 +150,7 @@ private object NativeGuildRepository {
                 put("p_picture_url", JsonPrimitive(pictureUrl ?: ""))
                 put("p_colour", JsonPrimitive(colour))
             }
-        ).decodeSingle<GuildData>()
+        ).decodeAs<GuildData>()
     }
 
     suspend fun invite(guildId: String, username: String) = withContext(Dispatchers.IO) {
