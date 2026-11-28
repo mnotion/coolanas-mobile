@@ -458,9 +458,9 @@ fun StudyDashboardScreen(
         }
         timer = optimistic
         updateStudyTimerNotification(appContext, optimistic, serverClockOffsetMs, selectedSubject)
+        stopwatchBusy = true
+        stopwatchError = null
         scope.launch {
-            stopwatchBusy = true
-            stopwatchError = null
             try {
                 val result = withContext(Dispatchers.IO) {
                     repository.accountStopwatchAction(
