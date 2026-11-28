@@ -1,6 +1,8 @@
 package com.coolanas.app
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -388,7 +390,10 @@ fun StudyMessagingScreen(userId: String) {
                 verticalArrangement = Arrangement.Center
             ) {
                 item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         friends.forEach { friend ->
                             Box {
                                 Surface(
