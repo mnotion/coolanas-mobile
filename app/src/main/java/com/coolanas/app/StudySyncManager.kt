@@ -72,10 +72,26 @@ data class StudyAnalyticsRecord(
     val eventId: String
 )
 
+data class StudyAnalyticsTask(
+    val id: String,
+    val text: String,
+    val completed: Boolean,
+    val completedAt: String? = null
+)
+
+data class StudyAnalyticsTaskDay(
+    val date: String,
+    val locked: Boolean,
+    val updatedAt: String?,
+    val tasks: List<StudyAnalyticsTask>
+)
+
 data class StudyAnalyticsSnapshot(
     val daily: Map<String, Long> = emptyMap(),
     val dailySubjects: Map<String, Map<String, Long>> = emptyMap(),
     val dailyHours: Map<String, Map<Int, Long>> = emptyMap(),
+    val taskDays: Map<String, StudyAnalyticsTaskDay> = emptyMap(),
+    val tasks: List<StudyAnalyticsTask> = emptyList(),
     val updatedAt: String? = null,
     val legacyImportPending: Boolean = false,
     val mirrorPending: Boolean = false
@@ -419,10 +435,45 @@ class StudySyncManager(context: Context) {
                 hour.toIntOrNull()?.takeIf { it in 0..23 }?.let { it to duration }
             }.toMap()
         }
+        val taskData = runCatching {
+            invokeFunction(buildJsonObject {
+                put("action", JsonPrimitive("tasks_get"))
+            })
+        }.getOrNull()
+        fun parseTask(element: JsonElement): StudyAnalyticsTask? {
+            val obj = element as? JsonObject ?: return null
+            val text = obj["text"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (text.isBlank()) return null
+            return StudyAnalyticsTask(
+                id = obj["id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                text = text.take(180),
+                completed = obj["completed"]?.jsonPrimitive?.booleanOrNull == true,
+                completedAt = obj["completedAt"]?.jsonPrimitive?.contentOrNull
+            )
+        }
+        val tasks = (taskData?.get("tasks") as? JsonArray)
+            ?.mapNotNull(::parseTask).orEmpty()
+        val taskDays = (taskData?.get("taskDays") as? JsonArray)
+            ?.mapNotNull { element ->
+                val obj = element as? JsonObject ?: return@mapNotNull null
+                val date = obj["date"]?.jsonPrimitive?.contentOrNull
+                    ?.takeIf { Regex("^\\d{4}-\\d{2}-\\d{2}$").matches(it) }
+                    ?: return@mapNotNull null
+                val dayTasks = (obj["tasks"] as? JsonArray)?.mapNotNull(::parseTask).orEmpty()
+                date to StudyAnalyticsTaskDay(
+                    date = date,
+                    locked = obj["locked"]?.jsonPrimitive?.booleanOrNull == true,
+                    updatedAt = obj["updatedAt"]?.jsonPrimitive?.contentOrNull,
+                    tasks = dayTasks
+                )
+            }?.toMap().orEmpty()
+
         StudyAnalyticsSnapshot(
             daily = longMap(result["daily"]),
             dailySubjects = nestedLongMap(result["dailySubjects"]),
             dailyHours = hourly,
+            taskDays = taskDays,
+            tasks = tasks,
             updatedAt = result["updatedAt"]?.jsonPrimitive?.contentOrNull,
             legacyImportPending = result["legacyImportPending"]?.jsonPrimitive?.booleanOrNull == true,
             mirrorPending = result["mirrorPending"]?.jsonPrimitive?.booleanOrNull == true
