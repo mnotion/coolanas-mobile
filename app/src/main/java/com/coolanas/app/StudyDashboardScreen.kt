@@ -984,6 +984,8 @@ fun StudyDashboardScreen(
                 }
             }
         }
+                }
+            }
 
         if (!timerRunning || activePage != DashboardPage.Timer) {
             CoolanasBottomNavigation(
