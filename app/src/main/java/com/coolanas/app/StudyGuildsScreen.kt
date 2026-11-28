@@ -359,7 +359,7 @@ fun StudyGuildsScreen(
         val channel = SupabaseClientProvider.client.realtime.channel("coolanas-guild-chat-" + activeGuild.id)
         val insertFlow = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
             table = "coolanas_guild_messages"
-            filter = "guild_id=eq-" + activeGuild.id
+            filter = "guild_id=eq." + activeGuild.id
         }
         val observer = launch {
             insertFlow.collect { action ->
@@ -564,7 +564,7 @@ fun StudyGuildsScreen(
         Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp)) {
             when (page) {
                 GuildPage.Home -> GuildHomeContent(
-                    guild = currentGuild, members = members, statuses = statuses,
+                    guild = currentGuild, currentUserId = userId, members = members, statuses = statuses,
                     elapsedMs = elapsed, timerRunning = timer.startedAtMs != null, loading = loading,
                     onCreate = ::beginCreate, onOpenBazaar = { page = GuildPage.Bazaar },
                     onOpenChat = { page = GuildPage.Chat }, onOpenStudying = { page = GuildPage.StudyingNow },
@@ -673,7 +673,7 @@ fun StudyGuildsScreen(
 
 @Composable
 private fun GuildHomeContent(
-    guild: GuildData?, members: List<GuildMemberData>, statuses: Map<String, String>,
+    guild: GuildData?, currentUserId: String, members: List<GuildMemberData>, statuses: Map<String, String>,
     elapsedMs: Long, timerRunning: Boolean, loading: Boolean,
     onCreate: () -> Unit, onOpenBazaar: () -> Unit, onOpenChat: () -> Unit,
     onOpenStudying: () -> Unit, onOpenInvitations: () -> Unit, onEdit: () -> Unit,
@@ -757,7 +757,7 @@ private fun GuildHomeContent(
                         GuildMemberLine(
                             member = member,
                             status = statuses[member.stableId] ?: "idle",
-                            current = member.stableId.isNotBlank() && member.stableId == guild.ownerId
+                            current = member.stableId.isNotBlank() && member.stableId == currentUserId
                         )
                     }
                     if (members.isEmpty()) Text("Your Guild is ready. Invite members to get started.", color = GuildMuted, fontSize = 12.sp)
