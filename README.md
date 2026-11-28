@@ -14,6 +14,8 @@ A native Android companion for Coolanas, built with Kotlin and Jetpack Compose. 
 - Native one-to-one messaging using the website's friend, conversation, message and read-receipt backend; includes friend search/requests, live messages, typing indicators and unread friend badges.
 - Android message notifications while the app's Realtime connection is alive, plus a persistent stopwatch chronometer notification and a first-launch notification permission prompt.
 - Account-synced appearance and profile avatar.
+- Native Guilds: Guild creation and editing, public Bazaar discovery, invitations, membership management, Guild chat with Realtime updates, member study statuses, and the public Studying Now directory. Guild banner and picture uploads use the existing `coolanas-guild-assets` bucket.
+- Guild screens reuse the account-owned stopwatch; they do not create a second or aggregate Guild timer.
 
 The stopwatch terminal and analytics are separate systems. The terminal stores the current account stopwatch state. Analytics store completed intervals for reporting. Direct-message payloads use the website's current v0 plaintext format; this Android implementation does not claim end-to-end encryption. Message notifications use an app-side Supabase Realtime subscription, not Firebase Cloud Messaging, so delivery is not guaranteed after Android terminates the app process.
 
