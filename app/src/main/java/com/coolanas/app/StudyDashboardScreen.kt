@@ -82,7 +82,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collect
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.postgresChangeFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.max
 
@@ -853,6 +852,45 @@ fun StudyDashboardScreen(
                 editorSubject = null
             }
         )
+    }
+}
+
+@Composable
+private fun AnalyticsNavigationButton(enabled: Boolean, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .size(44.dp)
+            .combinedClickable(enabled = enabled, onClick = onClick)
+            .semantics { contentDescription = "Open analytics" },
+        shape = CircleShape,
+        color = Color(0xFFF7F7F7),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFD5D5D5))
+    ) {
+        Canvas(Modifier.padding(11.dp)) {
+            val left = size.width * 0.08f
+            val bottom = size.height * 0.9f
+            val path = Path().apply {
+                moveTo(left, size.height * 0.08f)
+                lineTo(left, bottom)
+                lineTo(size.width * 0.96f, bottom)
+            }
+            drawPath(
+                path,
+                color = Color(0xFF555555),
+                style = Stroke(width = size.minDimension * 0.09f, cap = StrokeCap.Round)
+            )
+            val trend = Path().apply {
+                moveTo(size.width * 0.2f, size.height * 0.68f)
+                lineTo(size.width * 0.43f, size.height * 0.47f)
+                lineTo(size.width * 0.62f, size.height * 0.56f)
+                lineTo(size.width * 0.88f, size.height * 0.18f)
+            }
+            drawPath(
+                trend,
+                color = Color(0xFF171717),
+                style = Stroke(width = size.minDimension * 0.1f, cap = StrokeCap.Round)
+            )
+        }
     }
 }
 
