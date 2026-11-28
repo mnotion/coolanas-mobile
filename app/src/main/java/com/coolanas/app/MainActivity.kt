@@ -127,6 +127,7 @@ class MainActivity : ComponentActivity() {
                                 is SessionStatus.NotAuthenticated -> {
                                     authenticatedUserId = null
                                     activeUserId = null
+                                    StudyTimerNotificationService.hide(applicationContext)
                                     accountProfile = CoolanasAccountProfile()
                                 }
                                 else -> Unit
@@ -317,8 +318,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private companion object {
-        const val LOG_TAG = "CoolanasAuth"
+    companion object {
+        private const val LOG_TAG = "CoolanasAuth"
         const val EXTRA_OPEN_MESSAGES = "coolanas.open_messages"
     }
 }
