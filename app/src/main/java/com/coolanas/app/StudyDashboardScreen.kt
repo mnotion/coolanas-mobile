@@ -113,9 +113,9 @@ fun StudyDashboardScreen(
     var selectedSubject by remember(userId) {
         mutableStateOf(repository.selectedSubject(userId))
     }
-    var timer by remember(userId) { mutableStateOf(StudyTimerState(0L, null, selectedSubject, null)) }
+    var timer by remember(userId) { mutableStateOf(repository.timerState(userId)) }
     var now by remember(userId) { mutableLongStateOf(System.currentTimeMillis()) }
-    var serverClockOffsetMs by remember(userId) { mutableLongStateOf(0L) }
+    var serverClockOffsetMs by remember(userId) { mutableLongStateOf(repository.cachedServerClockOffsetMs(userId)) }
     var stopwatchReady by remember(userId) { mutableStateOf(false) }
     var stopwatchBusy by remember(userId) { mutableStateOf(false) }
     var stopwatchError by remember(userId) { mutableStateOf<String?>(null) }
