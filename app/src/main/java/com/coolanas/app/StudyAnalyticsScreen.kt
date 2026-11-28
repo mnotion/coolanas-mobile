@@ -139,6 +139,10 @@ fun StudyAnalyticsScreen(
         .toList()
         .sortedByDescending { it.second }
     val selectedHours = displaySnapshot.dailyHours[dailyKey].orEmpty()
+    val selectedTaskSnapshot = displaySnapshot.taskDays[dailyKey]
+    val selectedTasks = selectedTaskSnapshot?.tasks
+        ?: displaySnapshot.tasks.filter { it.completedAt == dailyKey }
+            .map { it.copy(completed = true) }
 
     Column(
         modifier = Modifier
@@ -331,6 +335,46 @@ fun StudyAnalyticsScreen(
                 Text("Hourly activity", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
                 HourlyBars(selectedHours)
             }
+            if (selectedTaskSnapshot != null || selectedDate.isBefore(today)) {
+                AnalyticsCard {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Tasks", color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp)
+                        if (selectedTaskSnapshot?.locked == true) {
+                            Text("Locked", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                        }
+                    }
+                    if (selectedTasks.isEmpty()) {
+                        Text(
+                            "No tasks recorded for this day.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp
+                        )
+                    } else {
+                        selectedTasks.forEach { task ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text(
+                                    if (task.completed) "✓" else "○",
+                                    color = if (task.completed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 16.sp
+                                )
+                                Text(
+                                    task.text,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         if (snapshot.legacyImportPending) {
@@ -434,7 +478,8 @@ private fun YearHeatmap(daily: Map<String, Long>, today: LocalDate) {
         .withDayOfYear(1).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
     val totalDays = ChronoUnit.DAYS.between(start, today).toInt() + 1
     val weeks = (totalDays + 6) / 7
-    val maximum = daily.values.maxOrNull()?.coerceAtLeast(1L) ?: 1L
+    val yearPrefix = today.year.toString() + "-"
+    val maximum = daily.filterKeys { it.startsWith(yearPrefix) }.values.maxOrNull()?.coerceAtLeast(1L) ?: 1L
     Row(
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(3.dp)
