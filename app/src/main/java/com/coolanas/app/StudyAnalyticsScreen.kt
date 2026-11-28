@@ -49,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
@@ -358,11 +359,19 @@ private fun MonthlyAnalytics(
         AnalyticsCard {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 MetricCell("Study time", formatAnalyticsDuration(total), Modifier.weight(1f))
+                Surface(
+                    Modifier.width(1.dp).height(48.dp),
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                ) {}
                 MetricCell("Days studied", studiedDays.toString(), Modifier.weight(1f))
             }
             Surface(Modifier.fillMaxWidth().height(1.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)) {}
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 MetricCell("Daily average", formatAnalyticsDuration(dailyAverage), Modifier.weight(1f))
+                Surface(
+                    Modifier.width(1.dp).height(48.dp),
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                ) {}
                 MetricCell("Best day", formatAnalyticsDuration(bestDay), Modifier.weight(1f))
             }
         }
@@ -569,6 +578,11 @@ private fun CalendarGrid(
         if (day in 1..month.lengthOfMonth()) month.atDay(day) else null
     }
     val maxDay = snapshot.daily.filterKeys { it.startsWith(month.toString()) }.values.maxOrNull()?.coerceAtLeast(1L) ?: 1L
+    var waveStarted by remember(month) { mutableStateOf(false) }
+    LaunchedEffect(month) {
+        delay(35L)
+        waveStarted = true
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth()) {
@@ -584,6 +598,15 @@ private fun CalendarGrid(
                     } else {
                         val amount = snapshot.daily[date.toString()] ?: 0L
                         val selected = date == selectedDate
+                        val cellScale by animateFloatAsState(
+                            targetValue = if (waveStarted) 1f else 0.78f,
+                            animationSpec = tween(
+                                durationMillis = 420,
+                                delayMillis = week * 65 + column * 28,
+                                easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
+                            ),
+                            label = "calendar-day-$date"
+                        )
                         val level = when {
                             amount <= 0L -> 0
                             amount <= maxDay / 4L -> 1
@@ -602,6 +625,11 @@ private fun CalendarGrid(
                             modifier = Modifier
                                 .weight(1f)
                                 .height(58.dp)
+                                .graphicsLayer {
+                                    scaleX = cellScale
+                                    scaleY = cellScale
+                                    alpha = cellScale
+                                }
                                 .clip(RoundedCornerShape(11.dp))
                                 .background(if (selected) Color(0xFF49405B) else Color.Transparent)
                                 .noRippleClickable { onDateSelected(date) }
