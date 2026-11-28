@@ -235,8 +235,9 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        // The account-owned Supabase terminal keeps running independently of the app process.
+        // WorkManager only flushes completed analytics events already queued locally.
         activeUserId?.let { userId ->
-            studySyncManager.checkpointTimer(userId)
             StudySyncWorker.enqueue(applicationContext, userId)
         }
         if (networkCallbackRegistered) {
