@@ -569,7 +569,11 @@ fun StudyDashboardScreen(
                         activeSubject = timer.runningSubject ?: selectedSubject ?: "Unassigned",
                         loading = analyticsLoading,
                         profileAvatar = avatar,
-                        onBack = { activePage = DashboardPage.Timer }
+                        onBack = { activePage = DashboardPage.Timer },
+                        onProfileClick = {
+                            activePage = DashboardPage.Timer
+                            accountMenuOpen = true
+                        }
                     )
                 }
                 DashboardPage.Messages -> StudyMessagingScreen(userId = userId)
@@ -845,6 +849,7 @@ fun StudyDashboardScreen(
                         Surface(
                             modifier = Modifier.noRippleCombinedClickable(
                                 onClick = {
+                                    inlineEditingSubject?.let { finishInlineSubjectEdit(it) }
                                     selectedSubject = subject.name
                                     repository.selectSubject(userId, subject.name)
                                 },
@@ -996,6 +1001,7 @@ fun StudyDashboardScreen(
                     activePage = page
                     accountMenuOpen = false
                     subjectMenu = null
+                    inlineEditingSubject?.let { finishInlineSubjectEdit(it) }
                 },
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
             )
