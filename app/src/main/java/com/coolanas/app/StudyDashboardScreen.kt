@@ -81,6 +81,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collect
 import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.withContext
@@ -238,8 +239,7 @@ fun StudyDashboardScreen(
     // A 15-second get is retained as a recovery fallback for changes missed while offline.
     LaunchedEffect(userId) {
         val channel = SupabaseClientProvider.client.realtime.channel(
-            "coolanas-account-stopwatch-$userId",
-            {}
+            "coolanas-account-stopwatch-$userId"
         )
         val changes = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
             table = "coolanas_account_stopwatches"
